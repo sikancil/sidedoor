@@ -161,8 +161,8 @@ async function syncUfwIfNeeded(config: Config): Promise<void> {
   }
 
   try {
-    // Get current UFW status
-    const ufwStatus = execSync('ufw status', { encoding: 'utf-8' });
+    // Get current UFW status (requires sudo)
+    const ufwStatus = execSync('sudo ufw status', { encoding: 'utf-8' });
     const isActive = ufwStatus.includes('Status: active');
 
     if (!isActive) {

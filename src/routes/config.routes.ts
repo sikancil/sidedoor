@@ -154,8 +154,8 @@ export const configRoutes = new Elysia({ prefix: '/admin/config' })
     const issues: string[] = [];
 
     try {
-      // Check if UFW is active
-      const ufwStatus = execSync('ufw status', { encoding: 'utf-8' });
+      // Check if UFW is active (requires sudo)
+      const ufwStatus = execSync('sudo ufw status', { encoding: 'utf-8' });
       const isActive = ufwStatus.includes('Status: active');
 
       if (!isActive) {
@@ -200,8 +200,8 @@ export const configRoutes = new Elysia({ prefix: '/admin/config' })
     const { execSync } = require('node:child_process');
 
     try {
-      // Get current UFW status
-      const ufwStatus = execSync('ufw status', { encoding: 'utf-8' });
+      // Get current UFW status (requires sudo)
+      const ufwStatus = execSync('sudo ufw status', { encoding: 'utf-8' });
       const isActive = ufwStatus.includes('Status: active');
 
       if (!isActive) {
