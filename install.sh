@@ -31,6 +31,9 @@ SERVICE_USER="${SIDEDOOR_USER:-ubuntu}"
 SKIP_SETUP="${SKIP_SETUP:-false}"
 CLONE_DIR_BASE="/tmp/sidedoor-bootstrap"
 
+# Global for cleanup trap access
+CLONE_DIR=""
+
 # Colors
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -99,6 +102,19 @@ check_os() {
 
 install_minimal_deps() {
     header "Installing Minimal Dependencies"
+
+    # Wait for APT lock (unattended-updates may be running on fresh droplet)
+    log "Waiting for APT lock..."
+    local max_wait=60
+    local waited=0
+    while fuser /var/lib/apt/lists/lock >/dev/null 2>&1 || fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1; do
+        if [[ $waited -ge $max_wait ]]; then
+            warn "APT lock wait timeout, attempting to continue..."
+            break
+        fi
+        sleep 2
+        ((waited += 2))
+    done
 
     log "Updating package list..."
     apt-get update -qq
@@ -238,16 +254,14 @@ delegate_to_setup() {
 cleanup() {
     header "Cleanup"
 
-    local clone_dir=$1
-
-    if [[ -d "$clone_dir" ]]; then
-        log "Removing temporary clone directory: $clone_dir"
-        rm -rf "$clone_dir"
+    if [[ -n "$CLONE_DIR" ]] && [[ -d "$CLONE_DIR" ]]; then
+        log "Removing temporary clone directory: $CLONE_DIR"
+        rm -rf "$CLONE_DIR"
     fi
 
-    # Clean up any old bootstrap directories
+    # Clean up any old bootstrap directories (skip if CLONE_DIR is still active)
     find "$CLONE_DIR_BASE"* -maxdepth 0 -mtime +1 2>/dev/null | while read -r old_dir; do
-        if [[ -d "$old_dir" ]]; then
+        if [[ -d "$old_dir" ]] && [[ "$old_dir" != "$CLONE_DIR" ]]; then
             log "Removing old bootstrap directory: $old_dir"
             rm -rf "$old_dir"
         fi
@@ -272,11 +286,8 @@ main() {
     echo -e "Repository:   ${GREEN}$REPO_URL${NC}"
     echo ""
 
-    # Track clone directory for cleanup
-    local clone_dir=""
-
-    # Set trap for cleanup on exit
-    trap 'cleanup "${clone_dir}"' EXIT
+    # Set trap for cleanup on exit (use global CLONE_DIR)
+    trap cleanup EXIT
 
     # Run installation phases
     check_root
@@ -284,13 +295,13 @@ main() {
     install_minimal_deps
     create_user_smart
     configure_git
-    clone_dir=$(clone_repo)
+    CLONE_DIR=$(clone_repo)
 
     # Delegate to setup.sh unless skipped
     if [[ "$SKIP_SETUP" == "true" ]]; then
         warn "SKIP_SETUP=true, skipping setup.sh execution"
-        warn "Clone directory: $clone_dir"
-        warn "To run setup manually: sudo bash $clone_dir/scripts/setup.sh --user $SERVICE_USER"
+        warn "Clone directory: $CLONE_DIR"
+        warn "To run setup manually: sudo bash $CLONE_DIR/scripts/setup.sh --user $SERVICE_USER"
 
         # Cancel the trap so we don't clean up the directory
         trap - EXIT
@@ -299,7 +310,7 @@ main() {
     fi
 
     # Run setup and capture exit code
-    delegate_to_setup "$clone_dir"
+    delegate_to_setup "$CLONE_DIR"
     local exit_code=$?
 
     # Exit with setup script's exit code
