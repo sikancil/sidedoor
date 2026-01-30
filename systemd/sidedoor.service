@@ -1,7 +1,6 @@
 [Unit]
 Description=Sidedoor SSH/SFTP Certificate Management Service
-After=network.target sshd.service
-Requires=sshd.service
+After=network.target ssh.service
 
 [Service]
 Type=simple

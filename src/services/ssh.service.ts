@@ -156,7 +156,7 @@ export class SSHService {
    * Restart SSH service
    */
   async restartSSH(): Promise<SSHCommandResult> {
-    const proc = Bun.spawn(['sudo', '/bin/systemctl', 'restart', 'sshd'], {
+    const proc = Bun.spawn(['sudo', '/bin/systemctl', 'restart', 'ssh'], {
       stdout: 'pipe',
       stderr: 'pipe',
     });
@@ -177,7 +177,7 @@ export class SSHService {
    * Check if SSH service is running
    */
   async checkSSHStatus(): Promise<SSHCommandResult> {
-    const proc = Bun.spawn(['sudo', '/bin/systemctl', 'is-active', 'sshd'], {
+    const proc = Bun.spawn(['sudo', '/bin/systemctl', 'is-active', 'ssh'], {
       stdout: 'pipe',
       stderr: 'pipe',
     });

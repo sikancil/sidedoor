@@ -238,17 +238,32 @@ install_bun() {
 
     log "Installing Bun..."
 
+    # Install required dependencies for Bun
+    log "Installing dependencies (unzip, curl, ca-certificates)..."
+    apt-get update -qq
+    apt-get install -y -qq unzip curl ca-certificates >/dev/null 2>&1
+    log "Dependencies installed"
+
     # Install Bun using official install script
     if curl -fsSL https://bun.sh/install | bash; then
-        # Add to PATH for current session
-        export BUN_INSTALL="$HOME/.bun"
-        export PATH="$BUN_INSTALL/bin:$PATH"
+        # Copy bun to system-wide location for all users to access
+        log "Installing Bun to system-wide location..."
+        mkdir -p /opt/bun
+        cp "$HOME/.bun/bin/bun" /opt/bun/bun
+        cp "$HOME/.bun/bin/bunx" /opt/bun/bunx 2>/dev/null || true
+        chmod 755 /opt/bun/bun
+        chmod 755 /opt/bun/bunx 2>/dev/null || true
 
-        # Also ensure it's in the system-wide PATH
-        ln -sf "$HOME/.bun/bin/bun" /usr/local/bin/bun 2>/dev/null || true
+        # Create symlinks in /usr/local/bin
+        ln -sf /opt/bun/bun /usr/local/bin/bun
+        ln -sf /opt/bun/bunx /usr/local/bin/bunx 2>/dev/null || true
+
+        # Add to PATH for current session
+        export BUN_INSTALL="/opt/bun"
+        export PATH="/opt/bun:$PATH"
 
         local bun_version
-        bun_version=$(bun --version)
+        bun_version=$(/usr/local/bin/bun --version)
         log "Bun installed successfully (version: $bun_version)"
         set_state "bun_installed"
     else
@@ -287,8 +302,10 @@ create_users() {
             set_state "users_created"
             return 0
         else
-            error "User 'ubuntu' does not exist but was requested"
-            exit 1
+            log "User 'ubuntu' does not exist, creating..."
+            useradd -m -s /bin/bash ubuntu
+            log "Created ubuntu user"
+            # Continue to group setup below
         fi
     fi
 
@@ -360,10 +377,10 @@ Match User n0x*
     PasswordAuthentication no
 EOF
 
-    # Validate and reload SSH
+    # Validate and reload SSH (Ubuntu 24.04 uses ssh.service, not sshd.service)
     if sshd -t; then
-        systemctl reload sshd 2>/dev/null || systemctl restart sshd
-        log "SSH configuration applied and sshd reloaded"
+        systemctl reload ssh 2>/dev/null || systemctl restart ssh
+        log "SSH configuration applied and ssh reloaded"
         set_state "ssh_configured"
     else
         error "SSH configuration validation failed"
@@ -579,8 +596,7 @@ configure_service() {
         cat > "$service_file" << EOF
 [Unit]
 Description=Sidedoor SSH/SFTP Certificate Management Service
-After=network.target sshd.service
-Requires=sshd.service
+After=network.target ssh.service
 
 [Service]
 Type=simple
@@ -722,7 +738,7 @@ EOF
 
         # Validate and reload
         if sshd -t; then
-            systemctl reload sshd 2>/dev/null || systemctl restart sshd
+            systemctl reload ssh 2>/dev/null || systemctl restart ssh
             log "SSH hardening applied"
         else
             warn "SSH hardening skipped (configuration would be invalid)"
