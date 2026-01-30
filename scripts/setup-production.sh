@@ -685,17 +685,15 @@ apply_security_hardening() {
     # Reset to defaults
     ufw --force reset >/dev/null 2>&1 || true
 
-    # Default policies
-    ufw default deny incoming >/dev/null 2>&1
+    # IMPORTANT: Allow SSH FIRST before denying incoming traffic
+    # This prevents SSH lockout during configuration
     ufw default allow outgoing >/dev/null 2>&1
-
-    # Allow SSH with rate limiting
     ufw limit 22/tcp >/dev/null 2>&1
-
-    # Allow API port
     ufw allow "$API_PORT/tcp" >/dev/null 2>&1
+    # Set default deny AFTER allowing required ports
+    ufw default deny incoming >/dev/null 2>&1
 
-    # Enable firewall
+    # Enable firewall (now safe with SSH allowed)
     ufw --force enable >/dev/null 2>&1
 
     log "UFW configured and enabled"
