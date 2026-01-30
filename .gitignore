@@ -1,0 +1,99 @@
+# Dependencies
+node_modules/
+bun.lockb
+
+# Build output
+out/
+dist/
+*.tgz
+
+# Code coverage
+coverage/
+*.lcov
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
+report.[0-9]_[0-9]_[0-9]_[0-9]_.json
+
+# Environment variables
+.env
+.env.*
+!.env.example
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Caches
+.eslintcache
+.cache/
+*.tsbuildinfo
+
+# Runtime data
+data/
+*.db
+*.db-shm
+*.db-wal
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Tool Artifacts
+.gem*/
+.cla*/
+.cli*es/
+.hiv*nd/
+.kil*de/
+.cur*or/
+.cur*es/
+.con*ue/
+.roo*
+.roo*es/
+.ser*a/
+.swa*m
+memory/
+coordination/
+cla*bat
+cla*ow
+cla*on
+cla*s1
+CLA*E.md
+
+# Testing
+.nyc_output/
+
+# TypeScript
+*.tsbuildinfo
+
+# Temporary files
+*.tmp
+.tmp/
+temp/
+tmp/
+
+# PM2
+.pm2/
+pids/
+*.pid
+*.seed
+*.pid.lock
+
+# Docker
+.dockerignore
+
+# Postman (sensitive data)
+postman/*.json.postman_data
+postman/secrets.json
+
+# OS
+Thumbs.db
+.DS_Store
