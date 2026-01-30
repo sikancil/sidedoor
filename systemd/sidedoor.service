@@ -1,0 +1,23 @@
+[Unit]
+Description=Sidedoor SSH/SFTP Certificate Management Service
+After=network.target sshd.service
+Requires=sshd.service
+
+[Service]
+Type=simple
+User={{SERVICE_USER}}
+Group=www-data
+WorkingDirectory=/opt/sidedoor
+Environment="NODE_ENV=production"
+Environment="CONFIG_PATH=/etc/sidedoor/config.json"
+ExecStart=/usr/local/bin/bun run /opt/sidedoor/src/index.ts
+Restart=always
+RestartSec=10s
+StandardOutput=append:/var/log/sidedoor/sidedoor.log
+StandardError=append:/var/log/sidedoor/sidedoor-errors.log
+Delegate=yes
+CPUAccounting=yes
+MemoryAccounting=yes
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,827 @@
+#!/usr/bin/env bash
+#
+# Sidedoor Production Setup Script
+# Idempotent setup for fresh DigitalOcean Ubuntu servers
+#
+# Usage:
+#   sudo ./scripts/setup-production.sh [OPTIONS]
+#
+# Options:
+#   --user USER          Service user (default: sidedoor)
+#   --force              Full reset before setup (runs rollback first)
+#   --skip-hardening     Skip security hardening (UFW, fail2ban)
+#   --verify-only        Run verification only
+#   --ssh-key PATH       Path to SSH public key for ubuntu user
+#   -h, --help           Show this help message
+#
+# Environment Variables:
+#   SERVICE_USER         Override service user name
+#   API_PORT             Override API port (default: 3000)
+#
+
+set -euo pipefail
+
+# Script directory
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
+
+# Default values
+SERVICE_USER="${SERVICE_USER:-sidedoor}"
+API_PORT="${API_PORT:-3000}"
+FORCE=false
+SKIP_HARDENING=false
+VERIFY_ONLY=false
+SSH_KEY_PATH=""
+
+# State file
+STATE_FILE="/var/lib/sidedoor/.setup-state"
+
+# Colors
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+CYAN='\033[0;36m'
+NC='\033[0m'
+
+# Help function
+show_help() {
+    cat << EOF
+Sidedoor Production Setup Script - Idempotent setup for Ubuntu servers
+
+Usage: sudo $0 [OPTIONS]
+
+Options:
+  --user USER          Service user to run the application (default: sidedoor)
+                       Use 'ubuntu' to use the existing default user
+  --force              Full reset before setup (removes and reinstalls everything)
+  --skip-hardening     Skip security hardening (UFW, fail2ban, SSH hardening)
+  --verify-only        Run verification checks without making changes
+  --ssh-key PATH       Path to SSH public key to add to ubuntu user
+  -h, --help           Show this help message
+
+Environment Variables:
+  SERVICE_USER         Same as --user
+  API_PORT             API port for the service (default: 3000)
+
+Examples:
+  # Standard setup with new 'sidedoor' user
+  sudo $0
+
+  # Setup using existing 'ubuntu' user
+  sudo $0 --user ubuntu
+
+  # Force complete reinstall
+  sudo $0 --force
+
+  # Skip security hardening (for testing)
+  sudo $0 --skip-hardening
+
+  # Run verification only
+  sudo $0 --verify-only
+
+EOF
+    exit 0
+}
+
+# Parse arguments
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --user)
+            SERVICE_USER="$2"
+            shift 2
+            ;;
+        --force)
+            FORCE=true
+            shift
+            ;;
+        --skip-hardening)
+            SKIP_HARDENING=true
+            shift
+            ;;
+        --verify-only)
+            VERIFY_ONLY=true
+            shift
+            ;;
+        --ssh-key)
+            SSH_KEY_PATH="$2"
+            shift 2
+            ;;
+        -h|--help)
+            show_help
+            ;;
+        *)
+            echo -e "${RED}Unknown option: $1${NC}"
+            echo "Use -h or --help for usage information"
+            exit 1
+            ;;
+    esac
+done
+
+# ========== UTILITY FUNCTIONS ==========
+
+log() {
+    echo -e "${GREEN}[SETUP]${NC} $1"
+}
+
+warn() {
+    echo -e "${YELLOW}[WARNING]${NC} $1"
+}
+
+error() {
+    echo -e "${RED}[ERROR]${NC} $1"
+}
+
+info() {
+    echo -e "${CYAN}[INFO]${NC} $1"
+}
+
+phase() {
+    echo ""
+    echo -e "${BLUE}═══════════════════════════════════════════════════════════════${NC}"
+    echo -e "${BLUE}  $1${NC}"
+    echo -e "${BLUE}═══════════════════════════════════════════════════════════════${NC}"
+    echo ""
+}
+
+# State tracking functions
+init_state() {
+    mkdir -p "$(dirname "$STATE_FILE")"
+    touch "$STATE_FILE"
+}
+
+set_state() {
+    local key="$1"
+    sed -i "/^${key}=/d" "$STATE_FILE" 2>/dev/null || true
+    echo "${key}=true" >> "$STATE_FILE"
+}
+
+get_state() {
+    local key="$1"
+    grep -q "^${key}=true" "$STATE_FILE" 2>/dev/null
+}
+
+# ========== REQUIREMENTS CHECK ==========
+
+check_requirements() {
+    phase "PHASE 1: Prerequisites Check"
+
+    local requirements_met=true
+
+    # Check if running as root
+    if [[ $EUID -ne 0 ]]; then
+        error "This script must be run as root"
+        requirements_met=false
+    else
+        log "Running as root"
+    fi
+
+    # Check OS
+    if [[ ! -f /etc/os-release ]]; then
+        error "Cannot determine OS version"
+        requirements_met=false
+    elif ! grep -q "Ubuntu" /etc/os-release; then
+        error "This script is designed for Ubuntu systems only"
+        requirements_met=false
+    else
+        local ubuntu_version
+        ubuntu_version=$(grep "VERSION_ID" /etc/os-release | cut -d'"' -f2)
+        log "Ubuntu version: $ubuntu_version"
+    fi
+
+    # Check memory (minimum 512MB)
+    local total_mem
+    total_mem=$(free -m | awk '/^Mem:/{print $2}')
+    if [[ $total_mem -lt 512 ]]; then
+        warn "Low memory detected: ${total_mem}MB (recommended: 512MB+)"
+    else
+        log "Memory: ${total_mem}MB"
+    fi
+
+    # Check disk space (minimum 1GB free)
+    local free_disk
+    free_disk=$(df -m / | awk 'NR==2{print $4}')
+    if [[ $free_disk -lt 1024 ]]; then
+        warn "Low disk space: ${free_disk}MB free (recommended: 1GB+)"
+    else
+        log "Disk space: ${free_disk}MB free"
+    fi
+
+    # Check systemd
+    if ! command -v systemctl &>/dev/null; then
+        error "systemd is not available"
+        requirements_met=false
+    else
+        log "systemd is available"
+    fi
+
+    if [[ "$requirements_met" == "false" ]]; then
+        error "Prerequisites check failed"
+        exit 1
+    fi
+
+    set_state "prerequisites_checked"
+    log "Prerequisites check passed"
+}
+
+# ========== BUN INSTALLATION ==========
+
+install_bun() {
+    phase "PHASE 2: Install Bun Runtime"
+
+    if get_state "bun_installed" && command -v bun &>/dev/null; then
+        local bun_version
+        bun_version=$(bun --version)
+        log "Bun already installed (version: $bun_version)"
+        return 0
+    fi
+
+    log "Installing Bun..."
+
+    # Install Bun using official install script
+    if curl -fsSL https://bun.sh/install | bash; then
+        # Add to PATH for current session
+        export BUN_INSTALL="$HOME/.bun"
+        export PATH="$BUN_INSTALL/bin:$PATH"
+
+        # Also ensure it's in the system-wide PATH
+        ln -sf "$HOME/.bun/bin/bun" /usr/local/bin/bun 2>/dev/null || true
+
+        local bun_version
+        bun_version=$(bun --version)
+        log "Bun installed successfully (version: $bun_version)"
+        set_state "bun_installed"
+    else
+        error "Failed to install Bun"
+        exit 1
+    fi
+}
+
+# ========== USER CREATION ==========
+
+create_users() {
+    phase "PHASE 3: Create Users"
+
+    if get_state "users_created" && id "$SERVICE_USER" &>/dev/null; then
+        log "Service user '$SERVICE_USER' already exists"
+        return 0
+    fi
+
+    # Handle ubuntu user (add to groups if needed)
+    if [[ "$SERVICE_USER" == "ubuntu" ]]; then
+        if id ubuntu &>/dev/null; then
+            log "Using existing 'ubuntu' user"
+
+            # Add to sudo group if not already
+            if ! groups ubuntu | grep -q "sudo"; then
+                usermod -aG sudo ubuntu
+                log "Added ubuntu to sudo group"
+            fi
+
+            # Add to www-data group if not already
+            if ! groups ubuntu | grep -q "www-data"; then
+                usermod -aG www-data ubuntu
+                log "Added ubuntu to www-data group"
+            fi
+
+            set_state "users_created"
+            return 0
+        else
+            error "User 'ubuntu' does not exist but was requested"
+            exit 1
+        fi
+    fi
+
+    # Create new service user
+    if id "$SERVICE_USER" &>/dev/null; then
+        log "Service user '$SERVICE_USER' already exists"
+    else
+        log "Creating service user '$SERVICE_USER'..."
+        useradd -r -s /bin/bash "$SERVICE_USER"
+        log "Created user: $SERVICE_USER"
+    fi
+
+    # Add to required groups
+    if ! groups "$SERVICE_USER" | grep -q "sudo"; then
+        usermod -aG sudo "$SERVICE_USER"
+        log "Added $SERVICE_USER to sudo group"
+    fi
+
+    if ! groups "$SERVICE_USER" | grep -q "www-data"; then
+        usermod -aG www-data "$SERVICE_USER"
+        log "Added $SERVICE_USER to www-data group"
+    fi
+
+    # Setup SSH key for ubuntu user if provided
+    if [[ -n "$SSH_KEY_PATH" ]]; then
+        if [[ -f "$SSH_KEY_PATH" ]]; then
+            log "Setting up SSH key for ubuntu user..."
+            mkdir -p /home/ubuntu/.ssh
+            cat "$SSH_KEY_PATH" >> /home/ubuntu/.ssh/authorized_keys
+            chown -R ubuntu:ubuntu /home/ubuntu/.ssh
+            chmod 700 /home/ubuntu/.ssh
+            chmod 600 /home/ubuntu/.ssh/authorized_keys
+            log "SSH key installed for ubuntu user"
+        else
+            warn "SSH key file not found: $SSH_KEY_PATH"
+        fi
+    fi
+
+    set_state "users_created"
+}
+
+# ========== SSH CONFIGURATION ==========
+
+configure_ssh() {
+    phase "PHASE 4: Configure SSH for Chroot"
+
+    local ssh_config="/etc/ssh/sshd_config.d/sidedoor.conf"
+
+    if get_state "ssh_configured" && [[ -f "$ssh_config" ]]; then
+        log "SSH chroot configuration already exists"
+        return 0
+    fi
+
+    log "Creating SSH chroot configuration..."
+
+    # Create chroot base directory
+    mkdir -p /home/sftp
+
+    # Write SSH configuration
+    cat > "$ssh_config" << 'EOF'
+# Sidedoor API - Chroot configuration for dynamic certificate users
+# Matches generated usernames: n0x + 6 hex chars (e.g., n0x1a2b3c)
+Match User n0x*
+    ChrootDirectory /home/sftp/%u
+    ForceCommand internal-sftp
+    AllowTcpForwarding no
+    X11Forwarding no
+    PermitTunnel no
+    PasswordAuthentication no
+EOF
+
+    # Validate and reload SSH
+    if sshd -t; then
+        systemctl reload sshd 2>/dev/null || systemctl restart sshd
+        log "SSH configuration applied and sshd reloaded"
+        set_state "ssh_configured"
+    else
+        error "SSH configuration validation failed"
+        rm -f "$ssh_config"
+        exit 1
+    fi
+}
+
+# ========== SUDOERS CONFIGURATION ==========
+
+configure_sudoers() {
+    phase "PHASE 5: Setup Sudoers"
+
+    local sudoers_file="/etc/sudoers.d/sidedoor"
+
+    if get_state "sudoers_configured" && [[ -f "$sudoers_file" ]]; then
+        log "Sudoers configuration already exists"
+        return 0
+    fi
+
+    log "Creating sudoers configuration..."
+
+    # Use template if it exists, otherwise create inline
+    if [[ -f "$PROJECT_ROOT/templates/sudoers-sidedoor" ]]; then
+        sed "s/{{SERVICE_USER}}/$SERVICE_USER/g" "$PROJECT_ROOT/templates/sudoers-sidedoor" > "$sudoers_file"
+    else
+        cat > "$sudoers_file" << EOF
+$SERVICE_USER ALL=(ALL) NOPASSWD: /usr/sbin/useradd
+$SERVICE_USER ALL=(ALL) NOPASSWD: /usr/sbin/userdel
+$SERVICE_USER ALL=(ALL) NOPASSWD: /usr/sbin/usermod
+$SERVICE_USER ALL=(ALL) NOPASSWD: /usr/bin/chage
+$SERVICE_USER ALL=(ALL) NOPASSWD: /bin/mkdir, /bin/chown, /bin/chmod, /bin/rm, /bin/rm -rf
+$SERVICE_USER ALL=(ALL) NOPASSWD: /usr/sbin/sshd, /usr/sbin/sshd -t
+$SERVICE_USER ALL=(ALL) NOPASSWD: /bin/systemctl daemon-reload, /bin/systemctl start, /bin/systemctl stop, /bin/systemctl enable, /bin/systemctl disable, /bin/systemctl restart
+$SERVICE_USER ALL=(ALL) NOPASSWD: /usr/bin/mount, /usr/bin/umount, /bin/mount -l
+$SERVICE_USER ALL=(ALL) NOPASSWD: /usr/bin/pkill, /usr/bin/killall
+EOF
+    fi
+
+    # Set correct permissions
+    chmod 0440 "$sudoers_file"
+
+    # Validate sudoers
+    if visudo -c -f "$sudoers_file" &>/dev/null; then
+        log "Sudoers configuration applied"
+        set_state "sudoers_configured"
+    else
+        error "Sudoers configuration validation failed"
+        rm -f "$sudoers_file"
+        exit 1
+    fi
+}
+
+# ========== CREATE DIRECTORIES ==========
+
+create_directories() {
+    phase "PHASE 6: Create Directories"
+
+    local dirs=(
+        "/etc/sidedoor"
+        "/var/lib/sidedoor"
+        "/var/log/sidedoor"
+        "/opt/sidedoor"
+    )
+
+    if get_state "directories_created"; then
+        log "Directories already exist"
+        # Ensure ownership is correct
+        for dir in "${dirs[@]}"; do
+            chown -R "$SERVICE_USER:$SERVICE_USER" "$dir" 2>/dev/null || \
+            chown -R "$SERVICE_USER:www-data" "$dir" 2>/dev/null || true
+        done
+        return 0
+    fi
+
+    log "Creating required directories..."
+
+    for dir in "${dirs[@]}"; do
+        if [[ ! -d "$dir" ]]; then
+            mkdir -p "$dir"
+            log "Created: $dir"
+        fi
+    done
+
+    # Set ownership
+    log "Setting directory ownership..."
+    for dir in "${dirs[@]}"; do
+        chown -R "$SERVICE_USER:$SERVICE_USER" "$dir" 2>/dev/null || \
+        chown -R "$SERVICE_USER:www-data" "$dir" 2>/dev/null || true
+    done
+
+    # Set permissions for config directory
+    chmod 755 /etc/sidedoor
+
+    set_state "directories_created"
+}
+
+# ========== INSTALL APPLICATION ==========
+
+install_application() {
+    phase "PHASE 7: Install Application"
+
+    local app_dir="/opt/sidedoor"
+
+    if get_state "app_installed" && [[ -f "$app_dir/src/index.ts" ]]; then
+        log "Application already installed"
+        return 0
+    fi
+
+    log "Installing application files to $app_dir..."
+
+    # Copy application files
+    cp -r "$PROJECT_ROOT"/* "$app_dir/" 2>/dev/null || {
+        error "Failed to copy application files"
+        error "Make sure you're running this script from the project directory"
+        exit 1
+    }
+
+    # Install dependencies
+    log "Installing dependencies..."
+    cd "$app_dir"
+    sudo -u "$SERVICE_USER" bun install 2>&1 | head -20
+
+    # Set ownership
+    chown -R "$SERVICE_USER:$SERVICE_USER" "$app_dir"
+    chown -R "$SERVICE_USER:www-data" "$app_dir" 2>/dev/null || true
+
+    log "Application installed successfully"
+    set_state "app_installed"
+}
+
+# ========== GENERATE SECRETS ==========
+
+generate_secrets() {
+    phase "PHASE 8: Generate Secrets"
+
+    local config_file="/etc/sidedoor/config.json"
+
+    if get_state "secrets_generated" && [[ -f "$config_file" ]]; then
+        log "Configuration file already exists"
+        return 0
+    fi
+
+    log "Generating secure tokens..."
+
+    # Generate 64-character tokens
+    local auth_token
+    local cron_secret
+    auth_token=$(openssl rand -base64 48 | head -c 64)
+    cron_secret=$(openssl rand -base64 48 | head -c 64)
+
+    # Create configuration
+    cat > "$config_file" << EOF
+{
+  "_comment": "Production configuration for Sidedoor API - Auto-generated by setup script",
+  "_generated": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")",
+  "port": $API_PORT,
+  "authenticatorToken": "$auth_token",
+  "cronSecret": "$cron_secret",
+  "chrootBasePath": "/home/sftp",
+  "dbPath": "/var/lib/sidedoor/certificates.db",
+  "configPath": "/etc/sidedoor/config.json",
+  "defaultDirectories": ["/srv", "/var/www", "/data/uploads"],
+  "defaultPermissions": ["read-write-modify"],
+  "defaultTtl": 600,
+  "user": {
+    "name": "$SERVICE_USER",
+    "group": "www-data"
+  }
+}
+EOF
+
+    # Set permissions
+    chmod 640 "$config_file"
+    chown "$SERVICE_USER:$SERVICE_USER" "$config_file"
+
+    # Display tokens to user
+    echo ""
+    echo -e "${YELLOW}═══════════════════════════════════════════════════════════════${NC}"
+    echo -e "${YELLOW}  ⚠️  IMPORTANT: SAVE THESE TOKENS SECURELY ⚠️${NC}"
+    echo -e "${YELLOW}═══════════════════════════════════════════════════════════════${NC}"
+    echo ""
+    echo -e "  ${CYAN}Authenticator Token:${NC} $auth_token"
+    echo -e "  ${CYAN}Cron Secret:${NC}         $cron_secret"
+    echo ""
+    echo -e "${YELLOW}═══════════════════════════════════════════════════════════════${NC}"
+    echo ""
+    echo "These tokens have been saved to: $config_file"
+    echo ""
+
+    set_state "secrets_generated"
+}
+
+# ========== CONFIGURE SERVICE ==========
+
+configure_service() {
+    phase "PHASE 9: Configure Systemd Service"
+
+    local service_file="/etc/systemd/system/sidedoor.service"
+
+    if get_state "service_configured" && [[ -f "$service_file" ]]; then
+        log "Service already configured"
+        systemctl daemon-reload
+        return 0
+    fi
+
+    log "Creating systemd service..."
+
+    # Use template if it exists, otherwise create inline
+    if [[ -f "$PROJECT_ROOT/systemd/sidedoor.service" ]]; then
+        sed "s/{{SERVICE_USER}}/$SERVICE_USER/g" "$PROJECT_ROOT/systemd/sidedoor.service" > "$service_file"
+    else
+        cat > "$service_file" << EOF
+[Unit]
+Description=Sidedoor SSH/SFTP Certificate Management Service
+After=network.target sshd.service
+Requires=sshd.service
+
+[Service]
+Type=simple
+User=$SERVICE_USER
+Group=www-data
+WorkingDirectory=/opt/sidedoor
+Environment="NODE_ENV=production"
+Environment="CONFIG_PATH=/etc/sidedoor/config.json"
+ExecStart=/usr/local/bin/bun run /opt/sidedoor/src/index.ts
+Restart=always
+RestartSec=10s
+StandardOutput=append:/var/log/sidedoor/sidedoor.log
+StandardError=append:/var/log/sidedoor/sidedoor-errors.log
+Delegate=yes
+CPUAccounting=yes
+MemoryAccounting=yes
+
+[Install]
+WantedBy=multi-user.target
+EOF
+    fi
+
+    systemctl daemon-reload
+    systemctl enable sidedoor
+
+    log "Service configured and enabled"
+    set_state "service_configured"
+}
+
+# ========== START SERVICE ==========
+
+start_service() {
+    phase "PHASE 10: Start Service"
+
+    if get_state "service_started" && systemctl is-active --quiet sidedoor; then
+        log "Service already running"
+        return 0
+    fi
+
+    log "Starting sidedoor service..."
+
+    systemctl start sidedoor
+
+    # Wait for service to start
+    local max_wait=30
+    local waited=0
+    while [[ $waited -lt $max_wait ]]; do
+        if systemctl is-active --quiet sidedoor; then
+            log "Service started successfully"
+            set_state "service_started"
+            return 0
+        fi
+        sleep 1
+        ((waited++))
+    done
+
+    error "Service failed to start"
+    error "Check logs with: journalctl -u sidedoor -n 50"
+    exit 1
+}
+
+# ========== SECURITY HARDENING ==========
+
+apply_security_hardening() {
+    phase "PHASE 11: Security Hardening"
+
+    if [[ "$SKIP_HARDENING" == "true" ]]; then
+        warn "Skipping security hardening (--skip-hardening flag set)"
+        return 0
+    fi
+
+    if get_state "hardening_applied"; then
+        log "Security hardening already applied"
+        return 0
+    fi
+
+    log "Applying security hardening..."
+
+    # Install UFW and Fail2ban if not present
+    apt-get update -qq
+    apt-get install -y -qq ufw fail2ban >/dev/null 2>&1
+
+    # Configure UFW
+    log "Configuring UFW firewall..."
+
+    # Reset to defaults
+    ufw --force reset >/dev/null 2>&1 || true
+
+    # Default policies
+    ufw default deny incoming >/dev/null 2>&1
+    ufw default allow outgoing >/dev/null 2>&1
+
+    # Allow SSH with rate limiting
+    ufw limit 22/tcp >/dev/null 2>&1
+
+    # Allow API port
+    ufw allow "$API_PORT/tcp" >/dev/null 2>&1
+
+    # Enable firewall
+    ufw --force enable >/dev/null 2>&1
+
+    log "UFW configured and enabled"
+
+    # Configure Fail2ban
+    log "Configuring Fail2ban..."
+
+    local fail2ban_jail="/etc/fail2ban/jail.d/sidedoor.conf"
+    cat > "$fail2ban_jail" << 'EOF'
+[DEFAULT]
+bantime = 3600
+findtime = 600
+maxretry = 5
+
+[sshd]
+enabled = true
+maxretry = 3
+bantime = 7200
+port = ssh
+logpath = /var/log/auth.log
+EOF
+
+    systemctl restart fail2ban
+
+    log "Fail2ban configured and restarted"
+
+    # SSH Hardening (additional security)
+    local ssh_hardening="/etc/ssh/sshd_config.d/security-hardening.conf"
+    if [[ ! -f "$ssh_hardening" ]]; then
+        log "Applying SSH hardening..."
+
+        cat > "$ssh_hardening" << 'EOF'
+# Security hardening for SSH
+PermitRootLogin no
+PasswordAuthentication no
+MaxAuthTries 3
+ClientAliveInterval 300
+ClientAliveCountMax 2
+EOF
+
+        # Validate and reload
+        if sshd -t; then
+            systemctl reload sshd 2>/dev/null || systemctl restart sshd
+            log "SSH hardening applied"
+        else
+            warn "SSH hardening skipped (configuration would be invalid)"
+            rm -f "$ssh_hardening"
+        fi
+    fi
+
+    set_state "hardening_applied"
+    log "Security hardening complete"
+}
+
+# ========== VERIFICATION ==========
+
+run_verification() {
+    phase "PHASE 12: Verification"
+
+    log "Running post-setup verification..."
+
+    if [[ -f "$SCRIPT_DIR/verify-setup.sh" ]]; then
+        bash "$SCRIPT_DIR/verify-setup.sh" --user "$SERVICE_USER" || {
+            error "Verification failed"
+            exit 1
+        }
+    else
+        warn "Verification script not found, skipping automated verification"
+    fi
+
+    set_state "verification_complete"
+}
+
+# ========== MAIN EXECUTION ==========
+
+main() {
+    echo ""
+    echo -e "${CYAN}╔═══════════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${CYAN}║                                                                   ║${NC}"
+    echo -e "${CYAN}║   ${NC}Sidedoor SSH/SFTP Certificate Management${NC}                 ${CYAN}║${NC}"
+    echo -e "${CYAN}║   ${NC}Production Setup Script${NC}                                      ${CYAN}║${NC}"
+    echo -e "${CYAN}║                                                                   ║${NC}"
+    echo -e "${CYAN}╚═══════════════════════════════════════════════════════════════╝${NC}"
+    echo ""
+    echo -e "Service User: ${GREEN}$SERVICE_USER${NC}"
+    echo -e "API Port:     ${GREEN}$API_PORT${NC}"
+    echo ""
+
+    # Verify-only mode
+    if [[ "$VERIFY_ONLY" == "true" ]]; then
+        run_verification
+        exit 0
+    fi
+
+    # Force mode - run rollback first
+    if [[ "$FORCE" == "true" ]]; then
+        warn "Force mode enabled - running rollback first..."
+        if [[ -f "$SCRIPT_DIR/rollback-setup.sh" ]]; then
+            bash "$SCRIPT_DIR/rollback-setup.sh" --full-reset || true
+            rm -f "$STATE_FILE"
+        fi
+    fi
+
+    # Initialize state file
+    init_state
+
+    # Run all phases
+    check_requirements
+    install_bun
+    create_users
+    configure_ssh
+    configure_sudoers
+    create_directories
+    install_application
+    generate_secrets
+    configure_service
+    start_service
+    apply_security_hardening
+    run_verification
+
+    # ========== SUMMARY ==========
+    echo ""
+    echo -e "${GREEN}═══════════════════════════════════════════════════════════════${NC}"
+    echo -e "${GREEN}  ✅ SETUP COMPLETE${NC}"
+    echo -e "${GREEN}═══════════════════════════════════════════════════════════════${NC}"
+    echo ""
+    echo "Service Status:"
+    echo "  systemctl status sidedoor"
+    echo ""
+    echo "View Logs:"
+    echo "  journalctl -u sidedoor -f"
+    echo "  tail -f /var/log/sidedoor/sidedoor.log"
+    echo ""
+    echo "API Health Check:"
+    echo "  curl http://localhost:$API_PORT/health"
+    echo ""
+    echo "Configuration:"
+    echo "  /etc/sidedoor/config.json"
+    echo ""
+    log "Setup completed successfully!"
+    echo ""
+}
+
+# Run main function
+main "$@"
