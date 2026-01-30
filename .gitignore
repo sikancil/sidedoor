@@ -75,6 +75,8 @@ CLA*E.md
 *.tsbuildinfo
 
 # Temporary files
+__unused/
+__backup__/
 *.tmp
 .tmp/
 temp/
