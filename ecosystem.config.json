@@ -1,0 +1,23 @@
+{
+  "apps": [
+    {
+      "name": "sidedoor-api",
+      "script": "src/index.ts",
+      "interpreter": "bun",
+      "interpreter_args": "run",
+      "instances": 2,
+      "exec_mode": "cluster",
+      "env": {
+        "NODE_ENV": "production",
+        "CONFIG_PATH": "/etc/sidedoor/config.json"
+      },
+      "error_file": "./data/logs/error.log",
+      "out_file": "./data/logs/out.log",
+      "log_date_format": "YYYY-MM-DD HH:mm:ss Z",
+      "autorestart": true,
+      "max_memory_restart": "500M",
+      "watch": false,
+      "merge_logs": true
+    }
+  ]
+}

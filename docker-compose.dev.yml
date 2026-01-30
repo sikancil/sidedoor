@@ -1,0 +1,34 @@
+services:
+  sidedoor-api-dev:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    container_name: sidedoor-api-dev
+    ports:
+      - "3000:3000"
+      - "2222:22"  # SSH port for testing SFTP connections
+    volumes:
+      - ./data:/app/data
+      # Mount config file
+      - ./config.json:/etc/sidedoor/config.json:ro
+      # Persist database and certificates
+      - sidedoor-data:/var/lib/sidedoor
+      - sidedoor-certs:/app/data/certificates
+      # Persist logs
+      - sidedoor-logs:/var/log/sidedoor
+    environment:
+      - NODE_ENV=development
+      - CONFIG_PATH=/etc/sidedoor/config.json
+      - CRON_SECRET=dev-secret-change-in-production-min-32-chars
+      - SKIP_SYSTEMD=true  # Skip systemd initialization in dev mode
+    cap_add:
+      - SYS_ADMIN  # Required for user management
+    security_opt:
+      - seccomp:unconfined
+    privileged: true  # Required for useradd, chroot, mount, etc.
+    stop_grace_period: 10s
+
+volumes:
+  sidedoor-data:
+  sidedoor-certs:
+  sidedoor-logs:

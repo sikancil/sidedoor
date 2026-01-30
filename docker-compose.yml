@@ -1,0 +1,36 @@
+services:
+  sidedoor-api:
+    build: .
+    container_name: sidedoor-api
+    ports:
+      - "3000:3000"
+      - "2222:22"  # SSH port for testing SFTP connections
+    volumes:
+      - ./data:/app/data
+      # Mount config file - will use default from docker-entrypoint.sh if not provided
+      - ./config.json:/etc/sidedoor/config.json:ro
+      # Persist database and certificates
+      - sidedoor-data:/var/lib/sidedoor
+      - sidedoor-certs:/app/data/certificates
+      # Persist systemd logs
+      - sidedoor-logs:/var/log/sidedoor
+    tmpfs:
+      # Systemd requires tmpfs for cgroups
+      - /sys/fs/cgroup:rw,mode=755
+    environment:
+      - NODE_ENV=development
+      - CONFIG_PATH=/etc/sidedoor/config.json
+      # CRON_SECRET for admin endpoints
+      - CRON_SECRET=dev-secret-change-in-production-min-32-chars
+    cap_add:
+      - SYS_ADMIN  # Required for systemd and user management
+    security_opt:
+      - seccomp:unconfined
+    privileged: true  # Required for systemd, useradd, chroot, mount, etc.
+    # Required for systemd containers
+    stop_grace_period: 30s
+
+volumes:
+  sidedoor-data:
+  sidedoor-certs:
+  sidedoor-logs:

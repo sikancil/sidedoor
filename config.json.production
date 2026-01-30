@@ -1,0 +1,18 @@
+{
+  "_comment": "Production configuration for Sidedoor API v2.0 - Dynamic User Model",
+  "_description": "Copy this file to /etc/sidedoor/config.json and update values as needed",
+  "_note": "Each certificate now gets a unique dynamic user (0xXXXXXX format) with individual chroot and systemd timer",
+  "port": 3000,
+  "authenticatorToken": "CHANGE_THIS_TO_A_SECURE_32_CHAR_MINIMUM_TOKEN",
+  "cronSecret": "CHANGE_THIS_TO_ANOTHER_SECURE_32_CHAR_MINIMUM_SECRET",
+  "chrootBasePath": "/home/sftp",
+  "dbPath": "/var/lib/sidedoor/certificates.db",
+  "configPath": "/etc/sidedoor/config.json",
+  "defaultDirectories": ["/srv", "/var/www", "/data/uploads"],
+  "defaultPermissions": ["read-write-modify"],
+  "defaultTtl": 600,
+  "user": {
+    "name": "sidedoor",
+    "group": "www-data"
+  }
+}

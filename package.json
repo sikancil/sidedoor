@@ -1,0 +1,38 @@
+{
+  "name": "sidedoor-api",
+  "version": "1.0.0",
+  "description": "SSH/SFTP Certificate Management Service",
+  "type": "module",
+  "main": "src/index.ts",
+  "scripts": {
+    "dev": "bun run src/index.ts",
+    "start": "bun run src/index.ts",
+    "pm2:start": "pm2 start ecosystem.config.json",
+    "pm2:stop": "pm2 stop ecosystem.config.json",
+    "pm2:restart": "pm2 restart ecosystem.config.json",
+    "pm2:logs": "pm2 logs sidedoor-api",
+    "pm2:status": "pm2 status",
+    "pm2:delete": "pm2 delete sidedoor-api",
+    "test": "bun test"
+  },
+  "keywords": [
+    "ssh",
+    "sftp",
+    "certificate",
+    "chroot",
+    "api",
+    "sidedoor"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "elysia": "^1.4.22",
+    "nanoid": "^5.1.6",
+    "pm2": "^6.0.14",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.3.7",
+    "typescript": "^5.9.3"
+  }
+}

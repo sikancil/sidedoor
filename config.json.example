@@ -1,0 +1,15 @@
+{
+  "port": 3000,
+  "authenticatorToken": "dev-token-change-in-production-min-32-chars",
+  "cronSecret": "dev-secret-change-in-production-min-32-chars",
+  "chrootBasePath": "/home/sftp",
+  "dbPath": "./data/certificates.db",
+  "configPath": "/etc/sidedoor/config.json",
+  "defaultDirectories": ["/srv", "/var/www", "/data/uploads"],
+  "defaultPermissions": ["read-write-modify"],
+  "defaultTtl": 600,
+  "user": {
+    "name": "sidedoor",
+    "group": "www-data"
+  }
+}

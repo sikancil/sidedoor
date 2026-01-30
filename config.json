@@ -1,0 +1,17 @@
+{
+  "port": 3000,
+  "authenticatorToken": "vm-access-api-default-token-please-change-in-production",
+  "cronSecret": "dev-secret-change-in-production-min-32-chars",
+  "chrootBasePath": "/home/sftp",
+  "dbPath": "./data/certificates.db",
+  "configPath": "/etc/sidedoor/config.json",
+  "allowedDirectories": [],
+  "defaultDirectories": ["/srv", "/var/www", "/data/uploads"],
+  "defaultPermissions": ["read-write-modify"],
+  "defaultTtl": 600,
+  "user": {
+    "name": "sidedoor",
+    "group": "www-data"
+  },
+  "notes": "allowedDirectories is left empty to allow dynamic directory paths. Schema validation ensures path safety: must be absolute, no .. traversal, no ~ expansion. If you want to restrict to specific directories, add them to the allowedDirectories array."
+}

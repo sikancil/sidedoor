@@ -1,0 +1,415 @@
+{
+  "info": {
+    "name": "VM Access API",
+    "description": "SSH/SFTP Certificate Management Service - Dynamic User Model v2.0",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "version": "2.0.0"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:3000",
+      "type": "string"
+    },
+    {
+      "key": "authToken",
+      "value": "vm-access-api-default-token-please-change-in-production",
+      "type": "string"
+    },
+    {
+      "key": "cronSecret",
+      "value": "dev-secret-change-in-production-min-32-chars",
+      "type": "string"
+    },
+    {
+      "key": "certificateId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "username",
+      "value": "",
+      "type": "string"
+    }
+  ],
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{authToken}}",
+        "type": "string"
+      }
+    ]
+  },
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "// Auto-set Authorization header if not already set",
+          "if (!pm.request.headers.get('Authorization')) {",
+          "    pm.request.headers.add({",
+          "        key: 'Authorization',",
+          "        value: 'Bearer ' + pm.variables.get('authToken'),",
+          "    });",
+          "}"
+        ]
+      }
+    }
+  ],
+  "item": [
+    {
+      "name": "Health",
+      "item": [
+        {
+          "name": "Health Check",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/health",
+              "host": ["{{baseUrl}}"],
+              "path": ["health"]
+            },
+            "description": "Check API health status (no auth required)"
+          },
+          "response": []
+        }
+      ],
+      "description": "Health check endpoints (no authentication required)"
+    },
+    {
+      "name": "Certificates",
+      "item": [
+        {
+          "name": "Create Certificate",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "// Capture certificate ID and username from response",
+                  "if (pm.response.code === 201) {",
+                  "    const jsonData = pm.response.json();",
+                  "    if (jsonData.data && jsonData.data.id) {",
+                  "        pm.variables.set('certificateId', jsonData.data.id);",
+                  "        pm.variables.set('username', jsonData.data.username);",
+                  "        console.log('Certificate ID saved:', jsonData.data.id);",
+                  "        console.log('Username saved:', jsonData.data.username);",
+                  "    }",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"directoryPath\": \"/srv\",\n  \"permissions\": [\"sftp\", \"read-write\"],\n  \"ttl\": 600,\n  \"responseType\": \"cert\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/certificates",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "certificates"]
+            },
+            "description": "Generate a new SSH certificate with dynamic user (n0x###### format, 9 characters)"
+          },
+          "response": []
+        },
+        {
+          "name": "List All Certificates",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/certificates",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "certificates"]
+            },
+            "description": "Get all certificates with latest geolocation data"
+          },
+          "response": []
+        },
+        {
+          "name": "Get Certificate by ID",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/certificates/:id",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "certificates", ":id"],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "{{certificateId}}"
+                }
+              ]
+            },
+            "description": "Get single certificate with full access log history"
+          },
+          "response": []
+        },
+        {
+          "name": "Update Certificate",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"ttl\": 7200\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/certificates/:id",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "certificates", ":id"],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "{{certificateId}}"
+                }
+              ]
+            },
+            "description": "Update certificate TTL, permissions, or revoke"
+          },
+          "response": []
+        },
+        {
+          "name": "Delete Certificate",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/certificates/:id",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "certificates", ":id"],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "{{certificateId}}"
+                }
+              ]
+            },
+            "description": "Delete certificate and remove system user/chroot/timer"
+          },
+          "response": []
+        }
+      ],
+      "description": "Certificate CRUD operations (creates dynamic users n0x######)"
+    },
+    {
+      "name": "Downloads",
+      "item": [
+        {
+          "name": "Download Private Key",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "text/plain"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/download/:id/key",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "download", ":id", "key"],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "{{certificateId}}"
+                }
+              ]
+            },
+            "description": "Download the private key file"
+          },
+          "response": []
+        },
+        {
+          "name": "Download README",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "text/markdown"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/download/:id/readme",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "download", ":id", "readme"],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "{{certificateId}}"
+                }
+              ]
+            },
+            "description": "Download the README markdown file"
+          },
+          "response": []
+        },
+        {
+          "name": "Get README Content",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/download/:id/content",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "download", ":id", "content"],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "{{certificateId}}"
+                }
+              ]
+            },
+            "description": "Get README as JSON with both markdown and HTML"
+          },
+          "response": []
+        }
+      ],
+      "description": "Download certificate files and documentation"
+    },
+    {
+      "name": "Admin",
+      "item": [
+        {
+          "name": "Cleanup Certificate",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{cronSecret}}"
+              },
+              {
+                "key": "X-Trigger",
+                "value": "manual",
+                "description": "Set to 'systemd' when triggered by timer"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/admin/cleanup/:username",
+              "host": ["{{baseUrl}}"],
+              "path": ["admin", "cleanup", ":username"],
+              "variable": [
+                {
+                  "key": "username",
+                  "value": "{{username}}"
+                }
+              ]
+            },
+            "description": "Manually cleanup a certificate (deletes user, chroot, bind mounts, timer)"
+          },
+          "response": []
+        },
+        {
+          "name": "List Active Certificates",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{cronSecret}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/admin/certificates/active",
+              "host": ["{{baseUrl}}"],
+              "path": ["admin", "certificates", "active"]
+            },
+            "description": "List all active certificates with their systemd timer status"
+          },
+          "response": []
+        },
+        {
+          "name": "Get Certificate Cleanup Logs",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{cronSecret}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/admin/certificates/:username/logs",
+              "host": ["{{baseUrl}}"],
+              "path": ["admin", "certificates", ":username", "logs"],
+              "variable": [
+                {
+                  "key": "username",
+                  "value": "{{username}}"
+                }
+              ]
+            },
+            "description": "Get detailed cleanup logs for a specific certificate"
+          },
+          "response": []
+        },
+        {
+          "name": "List Systemd Timers",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{cronSecret}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/admin/timers",
+              "host": ["{{baseUrl}}"],
+              "path": ["admin", "timers"]
+            },
+            "description": "List all active systemd timers with details"
+          },
+          "response": []
+        },
+        {
+          "name": "Admin Health Check",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{cronSecret}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/admin/health",
+              "host": ["{{baseUrl}}"],
+              "path": ["admin", "health"]
+            },
+            "description": "Admin health check with orphan detection (certs without timers, timers without certs)"
+          },
+          "response": []
+        }
+      ],
+      "description": "Admin endpoints (require CRON_SECRET - used by systemd timers and manual cleanup)"
+    }
+  ]
+}
