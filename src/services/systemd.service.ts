@@ -1,5 +1,6 @@
 import { promises as fs } from 'node:fs';
 import type { SSHCommandResult } from './ssh.service';
+import { getConfig } from '../config';
 
 export interface SystemdTimerConfig {
   username: string;
@@ -17,6 +18,10 @@ export class SystemdService {
     const timerName = `sidedoor-${username}`;
     const serviceName = `sidedoor-cleanup-${username}`;
     const cronSecret = process.env.CRON_SECRET || 'default-secret';
+
+    // Get API port from config (instead of hardcoding 3000)
+    const appConfig = getConfig();
+    const apiUrl = `http://localhost:${appConfig.port}${cleanupEndpoint}`;
 
     // Format date for systemd OnCalendar (RFC 3339 format)
     const calendarTime = expiresAt.toISOString();
@@ -43,7 +48,7 @@ After=network.target
 [Service]
 Type=oneshot
 User=root
-ExecStart=/usr/bin/curl -s -X POST http://localhost:3000${cleanupEndpoint} \\
+ExecStart=/usr/bin/curl -s -X POST ${apiUrl} \\
   -H "Authorization: Bearer ${cronSecret}" \\
   -H "X-Certificate-Id: ${username}" \\
   -H "X-Trigger: systemd"

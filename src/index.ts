@@ -1,10 +1,11 @@
 import { Elysia } from 'elysia';
-import { loadConfig, DEFAULT_CONFIG } from './config';
+import { ensureConfig, DEFAULT_CONFIG, type Config } from './config';
 import { errorHandler } from './middleware/error.middleware';
 import { certificateRoutes } from './routes/certificates.routes';
 import { downloadRoutes } from './routes/download.routes';
 import { healthRoutes } from './routes/health.routes';
 import { adminRoutes } from './routes/admin.routes';
+import { configRoutes } from './routes/config.routes';
 import { getRecoveryService } from './services/recovery.service';
 import { getSystemdService } from './services/systemd.service';
 import { getSSHService } from './services/ssh.service';
@@ -24,6 +25,9 @@ const app = new Elysia()
 
   // Admin routes (admin auth required)
   .use(adminRoutes)
+
+  // Config management routes (admin auth required)
+  .use(configRoutes)
 
   // Root endpoint
   .get('/', () => ({
@@ -52,19 +56,30 @@ const app = new Elysia()
         timers: 'GET /admin/timers',
         health: 'GET /admin/health',
       },
+      config: {
+        get: 'GET /admin/config',
+        update: 'PATCH /admin/config',
+        reload: 'POST /admin/config/reload',
+        validateUfw: 'GET /admin/config/validate-ufw',
+        syncUfw: 'POST /admin/config/sync-ufw',
+      },
     },
   }));
 
 // Start server
 async function start() {
-  // Load configuration (uses CONFIG_PATH env var or default from constants)
+  // Load configuration (auto-recreates if missing)
   const configPath = process.env.CONFIG_PATH || DEFAULT_CONFIG.configPath;
-  const config = await loadConfig(configPath);
+  const config = await ensureConfig(configPath);
 
   // Check if running in development mode without systemd
   const skipSystemd = process.env.SKIP_SYSTEMD === 'true';
 
   if (!skipSystemd) {
+    // AUTOMATED: Sync UFW with config at startup
+    console.log('Checking UFW configuration...');
+    await syncUfwIfNeeded(config);
+
     // Ensure log directory exists
     await getSystemdService().ensureLogDirectory();
 
@@ -123,6 +138,68 @@ async function start() {
   console.log(`  GET    /admin/certificates/:username/logs`);
   console.log(`  GET    /admin/timers`);
   console.log(`  GET    /admin/health`);
+  console.log(`  GET    /admin/config`);
+  console.log(`  PATCH  /admin/config`);
+  console.log(`  POST   /admin/config/reload`);
+  console.log(`  GET    /admin/config/validate-ufw`);
+  console.log(`  POST   /admin/config/sync-ufw`);
+}
+
+/**
+ * Automatic UFW synchronization at startup
+ * Checks if UFW is active and ensures required ports are allowed
+ */
+async function syncUfwIfNeeded(config: Config): Promise<void> {
+  const { execSync } = require('node:child_process');
+
+  try {
+    // Check if UFW is installed
+    execSync('command -v ufw', { stdio: 'ignore' });
+  } catch {
+    console.warn('⚠️  UFW not installed. Skipping firewall synchronization.');
+    return;
+  }
+
+  try {
+    // Get current UFW status
+    const ufwStatus = execSync('ufw status', { encoding: 'utf-8' });
+    const isActive = ufwStatus.includes('Status: active');
+
+    if (!isActive) {
+      console.warn('⚠️  UFW is not active. Firewall synchronization skipped.');
+      console.warn('   To enable: sudo ufw enable');
+      return;
+    }
+
+    const actions: string[] = [];
+
+    // Check SSH port
+    const sshRule = ufwStatus.includes(`${config.sshPort}/tcp`);
+    if (!sshRule) {
+      console.warn(`⚠️  SSH port ${config.sshPort} not in UFW. Adding rule...`);
+      execSync(`sudo ufw allow ${config.sshPort}/tcp`, { stdio: 'pipe' });
+      actions.push(`Added UFW rule for SSH port ${config.sshPort}`);
+      console.log(`✅ Added UFW allow ${config.sshPort}/tcp (SSH)`);
+    }
+
+    // Check API port
+    const apiRule = ufwStatus.includes(`${config.port}/tcp`);
+    if (!apiRule) {
+      console.warn(`⚠️  API port ${config.port} not in UFW. Adding rule...`);
+      execSync(`sudo ufw allow ${config.port}/tcp`, { stdio: 'pipe' });
+      actions.push(`Added UFW rule for API port ${config.port}`);
+      console.log(`✅ Added UFW allow ${config.port}/tcp (API)`);
+    }
+
+    if (actions.length > 0) {
+      console.log(`🔥 UFW synchronized: ${actions.join(', ')}`);
+    } else {
+      console.log('✅ UFW configuration validated (all ports allowed)');
+    }
+  } catch (error) {
+    console.error(`❌ UFW sync failed: ${(error as Error).message}`);
+    console.warn('   Continuing startup anyway...');
+  }
 }
 
 start();

@@ -1,5 +1,6 @@
 {
   "port": 3000,
+  "sshPort": 22,
   "authenticatorToken": "dev-token-change-in-production-min-32-chars",
   "cronSecret": "dev-secret-change-in-production-min-32-chars",
   "chrootBasePath": "/home/sftp",

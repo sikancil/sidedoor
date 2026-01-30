@@ -34,6 +34,7 @@ export function generateUsername(): string {
 // Default configuration values
 export const DEFAULT_CONFIG = {
   port: 3000,
+  sshPort: 22, // SSH/SFTP port for UFW configuration
   authenticatorToken: '',
   chrootBasePath: '/home/sftp', // Base path for dynamic user chroots
   dbPath: '/var/lib/sidedoor/certificates.db',
@@ -47,6 +48,12 @@ export const DEFAULT_CONFIG = {
 
   // Legacy field (deprecated, kept for migration)
   allowedDirectories: [] as string[],
+
+  // Service user (optional, for running the sidedoor service)
+  user: {
+    name: 'sidedoor',
+    group: 'www-data',
+  },
 } as const;
 
 // SSH Configuration paths
