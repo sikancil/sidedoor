@@ -11,6 +11,7 @@
 #   SIDEDOOR_USER             Service user name (default: ubuntu)
 #   SKIP_SETUP                Skip setup.sh execution (default: false)
 #   MIGRATE_SSH_PRIVATE_KEYS  Include private keys in SSH migration (default: false)
+#   DEBUG                     Enable debug logging (default: false)
 #
 # Examples:
 #   # Standard installation
@@ -39,39 +40,30 @@ CLONE_DIR_BASE="/tmp/sidedoor-bootstrap"
 # Global for cleanup trap access
 CLONE_DIR=""
 
-# Colors
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-CYAN='\033[0;36m'
-NC='\033[0m'
+# Script directory for sourcing libraries
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-# ========== UTILITY FUNCTIONS ==========
+# ========== LOGGING (Must be sourced early) ==========
 
-log() {
-    echo -e "${GREEN}[INSTALL]${NC} $1"
-}
-
-warn() {
-    echo -e "${YELLOW}[WARNING]${NC} $1"
-}
-
-error() {
-    echo -e "${RED}[ERROR]${NC} $1"
-}
-
-info() {
-    echo -e "${CYAN}[INFO]${NC} $1"
-}
-
-header() {
-    echo ""
-    echo -e "${BLUE}===============================================================${NC}"
-    echo -e "${BLUE}  $1${NC}"
-    echo -e "${BLUE}===============================================================${NC}"
-    echo ""
-}
+# Source logging library (will be available after cloning, but define fallbacks for bootstrap)
+if [[ -f "$SCRIPT_DIR/scripts/lib/logging.sh" ]]; then
+    source "$SCRIPT_DIR/scripts/lib/logging.sh"
+elif [[ -f "./scripts/lib/logging.sh" ]]; then
+    source "./scripts/lib/logging.sh"
+else
+    # Fallback logging functions for bootstrap (before clone)
+    log() { echo -e "\033[0;32m[INSTALL]\033[0m $1"; }
+    warn() { echo -e "\033[1;33m[WARNING]\033[0m $1"; }
+    error() { echo -e "\033[0;31m[ERROR]\033[0m $1"; }
+    info() { echo -e "\033[0;36m[INFO]\033[0m $1"; }
+    header() {
+        echo ""
+        echo "==============================================================="
+        echo "  $1"
+        echo "==============================================================="
+        echo ""
+    }
+fi
 
 # ========== VALIDATION FUNCTIONS ==========
 
@@ -223,40 +215,63 @@ clone_repo() {
 delegate_to_setup() {
     local clone_dir=$1
 
-    header "Delegating to Setup Script"
+    phase "Delegating to Setup Script" "${BASH_LINENO:-0}"
 
     local setup_script="$clone_dir/scripts/setup.sh"
 
     if [[ ! -f "$setup_script" ]]; then
-        error "Setup script not found at $setup_script"
+        error "Setup script not found at $setup_script" "${BASH_LINENO:-0}"
         rm -rf "$clone_dir"
         exit 1
     fi
 
     # Source the SSH migration library for migration before setup
     local ssh_migrate_lib="$clone_dir/scripts/lib/ssh-migrate.sh"
+    local ssh_migration_done=false
+
     if [[ -f "$ssh_migrate_lib" ]]; then
         source "$ssh_migrate_lib"
 
         # Perform SSH migration if needed
         if [[ "${SSH_MIGRATION_NEEDED:-false}" == "true" ]] && [[ "$SERVICE_USER" != "root" ]]; then
-            if [[ "$MIGRATE_SSH_PRIVATE_KEYS" == "true" ]]; then
-                log "Migrating SSH keys from root to $SERVICE_USER (including private keys)..."
-                ssh_migrate_keys "$SERVICE_USER" "true"
+            # Check if already migrated to avoid double migration
+            if _ssh_is_migrated "$SERVICE_USER" "$MIGRATE_SSH_PRIVATE_KEYS"; then
+                log "INFO" "SSH migration already completed for $SERVICE_USER (skipping)" "${BASH_LINENO:-0}"
             else
-                log "Migrating SSH keys from root to $SERVICE_USER (public keys only)..."
-                ssh_migrate_keys "$SERVICE_USER" "false"
+                if [[ "$MIGRATE_SSH_PRIVATE_KEYS" == "true" ]]; then
+                    log "INFO" "Migrating SSH keys from root to $SERVICE_USER (including private keys)..." "${BASH_LINENO:-0}"
+                    if ssh_migrate_keys "$SERVICE_USER" "true"; then
+                        ssh_migration_done=true
+                        log "INFO" "SSH migration completed successfully" "${BASH_LINENO:-0}"
+                    else
+                        error "SSH migration failed" "${BASH_LINENO:-0}"
+                        return 1
+                    fi
+                else
+                    log "INFO" "Migrating SSH keys from root to $SERVICE_USER (public keys only)..." "${BASH_LINENO:-0}"
+                    if ssh_migrate_keys "$SERVICE_USER" "false"; then
+                        ssh_migration_done=true
+                        log "INFO" "SSH migration completed successfully" "${BASH_LINENO:-0}"
+                    else
+                        error "SSH migration failed" "${BASH_LINENO:-0}"
+                        return 1
+                    fi
+                fi
             fi
         fi
     fi
 
     # Build setup command with optional flags
+    # Pass SSH_MIGRATION_DONE to prevent double migration in setup.sh
     local setup_cmd="bash \"$setup_script\" --user \"$SERVICE_USER\""
     if [[ "$MIGRATE_SSH_PRIVATE_KEYS" == "true" ]]; then
         setup_cmd="$setup_cmd --migrate-ssh-private-keys"
     fi
+    if [[ "$ssh_migration_done" == "true" ]]; then
+        setup_cmd="SSH_MIGRATION_DONE=true $setup_cmd"
+    fi
 
-    log "Executing: $setup_cmd"
+    log "INFO" "Executing: $setup_cmd" "${BASH_LINENO:-0}"
     echo ""
 
     # Run setup script and capture exit code
@@ -265,9 +280,9 @@ delegate_to_setup() {
 
     echo ""
     if [[ $exit_code -eq 0 ]]; then
-        log "Setup completed successfully"
+        log "INFO" "Setup completed successfully" "${BASH_LINENO:-0}"
     else
-        error "Setup failed with exit code $exit_code"
+        error "Setup failed with exit code $exit_code" "${BASH_LINENO:-0}"
     fi
 
     return $exit_code
@@ -281,16 +296,20 @@ cleanup() {
 
     # Only remove our specific clone directory
     if [[ -n "$CLONE_DIR" ]] && [[ -d "$CLONE_DIR" ]]; then
-        log "Removing temporary clone directory: $CLONE_DIR"
+        log "INFO" "Removing temporary clone directory: $CLONE_DIR" "${BASH_LINENO:-0}"
         rm -rf "$CLONE_DIR" 2>/dev/null || true
     fi
 
-    log "Cleanup complete"
+    log "INFO" "Cleanup complete" "${BASH_LINENO:-0}"
 }
 
 # ========== MAIN FUNCTION ==========
 
 main() {
+    # Initialize logging first (before clone, so we use fallback functions)
+    # After clone, we'll reinitialize with the full library
+    init_logging "install" 2>/dev/null || true
+
     # Source wrapper libraries (available after cloning, but we need them before)
     # For now, define inline functions that will be available
     # The actual libraries will be sourced after cloning
@@ -306,22 +325,25 @@ main() {
     echo -e "Repository:   ${GREEN}$REPO_URL${NC}"
     echo ""
 
+    # Log installation parameters
+    log "INFO" "Installation started with BRANCH=$BRANCH, SERVICE_USER=$SERVICE_USER" "${BASH_LINENO:-0}"
+
     # Set trap for cleanup on exit (use global CLONE_DIR)
     trap cleanup EXIT
 
     # Check root/sudo elevation (inline for bootstrap)
     if [[ $EUID -ne 0 ]]; then
         if ! command -v sudo &>/dev/null; then
-            error "This script requires root privileges"
-            error "Sudo is not available on this system"
+            error "This script requires root privileges" "${BASH_LINENO:-0}"
+            error "Sudo is not available on this system" "${BASH_LINENO:-0}"
             exit 1
         fi
         if ! sudo -v &>/dev/null; then
-            error "This script requires root privileges"
-            error "Sudo authentication failed"
+            error "This script requires root privileges" "${BASH_LINENO:-0}"
+            error "Sudo authentication failed" "${BASH_LINENO:-0}"
             exit 1
         fi
-        log "🔐 Elevating privileges with sudo..."
+        log "INFO" "Elevating privileges with sudo..." "${BASH_LINENO:-0}"
         exec sudo "$0" "$@"
     fi
 
@@ -333,7 +355,7 @@ main() {
     # SSH migration from root to service user
     if [[ "$SERVICE_USER" != "root" ]] && id "$SERVICE_USER" &>/dev/null; then
         if [[ -d /root/.ssh ]]; then
-            log "Checking for SSH migration from root..."
+            log "INFO" "Checking for SSH migration from root..." "${BASH_LINENO:-0}"
             # We'll do the actual migration after cloning when libraries are available
             SSH_MIGRATION_NEEDED="true"
         fi
@@ -342,11 +364,19 @@ main() {
     configure_git
     CLONE_DIR=$(clone_repo)
 
+    # Source full logging library after clone
+    if [[ -f "$CLONE_DIR/scripts/lib/logging.sh" ]]; then
+        source "$CLONE_DIR/scripts/lib/logging.sh"
+        # Reinitialize logging with proper context
+        LOG_SCRIPT_NAME="install"
+        log "INFO" "Continuing installation after cloning repository" "${BASH_LINENO:-0}"
+    fi
+
     # Delegate to setup.sh unless skipped
     if [[ "$SKIP_SETUP" == "true" ]]; then
-        warn "SKIP_SETUP=true, skipping setup.sh execution"
-        warn "Clone directory: $CLONE_DIR"
-        warn "To run setup manually: sudo bash $CLONE_DIR/scripts/setup.sh --user $SERVICE_USER"
+        warn "SKIP_SETUP=true, skipping setup.sh execution" "${BASH_LINENO:-0}"
+        warn "Clone directory: $CLONE_DIR" "${BASH_LINENO:-0}"
+        warn "To run setup manually: sudo bash $CLONE_DIR/scripts/setup.sh --user $SERVICE_USER" "${BASH_LINENO:-0}"
 
         # Cancel the trap so we don't clean up the directory
         trap - EXIT

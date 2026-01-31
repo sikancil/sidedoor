@@ -32,6 +32,7 @@ source "$SCRIPT_DIR/lib/state.sh"
 source "$SCRIPT_DIR/lib/validate.sh"
 source "$SCRIPT_DIR/lib/ssh-migrate.sh"
 source "$SCRIPT_DIR/lib/sudo-wrapper.sh"
+source "$SCRIPT_DIR/lib/logging.sh"
 
 # Default values
 SERVICE_USER="${SERVICE_USER:-sidedoor}"
@@ -43,14 +44,7 @@ VERIFY_ONLY=false
 SSH_KEY_PATH=""
 MIGRATE_SSH_PRIVATE_KEYS=false
 SETUP_MODE=""
-
-# Colors
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-CYAN='\033[0;36m'
-NC='\033[0m'
+SSH_MIGRATION_DONE="${SSH_MIGRATION_DONE:-false}"  # Set by install.sh if migration already done
 
 # Help function
 show_help() {
@@ -139,32 +133,6 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-# ========== UTILITY FUNCTIONS ==========
-
-log() {
-    echo -e "${GREEN}[SETUP]${NC} $1"
-}
-
-warn() {
-    echo -e "${YELLOW}[WARNING]${NC} $1"
-}
-
-error() {
-    echo -e "${RED}[ERROR]${NC} $1"
-}
-
-info() {
-    echo -e "${CYAN}[INFO]${NC} $1"
-}
-
-phase() {
-    echo ""
-    echo -e "${BLUE}===============================================================${NC}"
-    echo -e "${BLUE}  $1${NC}"
-    echo -e "${BLUE}===============================================================${NC}"
-    echo ""
-}
-
 # ========== REQUIREMENTS CHECK ==========
 
 check_requirements() {
@@ -244,24 +212,24 @@ install_bun() {
 # ========== USER CREATION ==========
 
 create_users() {
-    phase "PHASE 3: Create Users"
+    phase "PHASE 3: Create Users" "${BASH_LINENO:-0}"
 
     # Handle ubuntu user with SSH key
     if [[ "$SERVICE_USER" == "ubuntu" ]] && id ubuntu &>/dev/null; then
-        log "Using existing 'ubuntu' user"
+        log "INFO" "Using existing 'ubuntu' user" "${BASH_LINENO:-0}"
 
         # Setup SSH key if provided
         if [[ -n "$SSH_KEY_PATH" ]]; then
             if [[ -f "$SSH_KEY_PATH" ]]; then
-                log "Setting up SSH key for ubuntu user..."
+                log "INFO" "Setting up SSH key for ubuntu user..." "${BASH_LINENO:-0}"
                 mkdir -p /home/ubuntu/.ssh
                 cat "$SSH_KEY_PATH" >> /home/ubuntu/.ssh/authorized_keys
                 chown -R ubuntu:ubuntu /home/ubuntu/.ssh
                 chmod 700 /home/ubuntu/.ssh
                 chmod 600 /home/ubuntu/.ssh/authorized_keys
-                log "SSH key installed for ubuntu user"
+                log "INFO" "SSH key installed for ubuntu user" "${BASH_LINENO:-0}"
             else
-                warn "SSH key file not found: $SSH_KEY_PATH"
+                warn "SSH key file not found: $SSH_KEY_PATH" "${BASH_LINENO:-0}"
             fi
         fi
     fi
@@ -272,20 +240,28 @@ create_users() {
 
         # Validate user access permissions
         if ! validate_user_access "$SERVICE_USER"; then
-            error "User access validation failed for $SERVICE_USER"
-            error "Cannot proceed with setup"
+            error "User access validation failed for $SERVICE_USER" "${BASH_LINENO:-0}"
+            error "Cannot proceed with setup" "${BASH_LINENO:-0}"
             return 1
         fi
 
         # SSH migration from root to service user
-        if [[ "$SERVICE_USER" != "root" ]] && [[ -d /root/.ssh ]]; then
-            if [[ "$MIGRATE_SSH_PRIVATE_KEYS" == "true" ]]; then
-                log "Migrating SSH keys from root to $SERVICE_USER (including private keys)..."
-                ssh_migrate_keys "$SERVICE_USER" "true"
+        # Check if migration was already done by install.sh (to prevent double migration)
+        if [[ "$SSH_MIGRATION_DONE" != "true" ]] && [[ "$SERVICE_USER" != "root" ]] && [[ -d /root/.ssh ]]; then
+            # Check if already migrated via state file
+            if _ssh_is_migrated "$SERVICE_USER" "$MIGRATE_SSH_PRIVATE_KEYS"; then
+                log "INFO" "SSH migration already completed for $SERVICE_USER (skipping)" "${BASH_LINENO:-0}"
             else
-                log "Migrating SSH keys from root to $SERVICE_USER (public keys only)..."
-                ssh_migrate_keys "$SERVICE_USER" "false"
+                if [[ "$MIGRATE_SSH_PRIVATE_KEYS" == "true" ]]; then
+                    log "INFO" "Migrating SSH keys from root to $SERVICE_USER (including private keys)..." "${BASH_LINENO:-0}"
+                    ssh_migrate_keys "$SERVICE_USER" "true"
+                else
+                    log "INFO" "Migrating SSH keys from root to $SERVICE_USER (public keys only)..." "${BASH_LINENO:-0}"
+                    ssh_migrate_keys "$SERVICE_USER" "false"
+                fi
             fi
+        elif [[ "$SSH_MIGRATION_DONE" == "true" ]]; then
+            log "INFO" "SSH migration already completed by installer (skipping)" "${BASH_LINENO:-0}"
         fi
 
         return 0
@@ -516,7 +492,7 @@ install_application() {
 # ========== GENERATE SECRETS ==========
 
 generate_secrets() {
-    phase "PHASE 8: Generate Secrets"
+    phase "PHASE 8: Generate Secrets" "${BASH_LINENO:-0}"
 
     local config_file="/etc/sidedoor/config.json"
 
@@ -529,21 +505,29 @@ generate_secrets() {
             cron_secret=$(jq -r '.cronSecret // empty' "$config_file" 2>/dev/null || echo "")
 
             if [[ -n "$auth_token" ]] && [[ -n "$cron_secret" ]]; then
-                log "Configuration file exists with valid tokens"
+                log "INFO" "Configuration file exists with valid tokens (skipping generation)" "${BASH_LINENO:-0}"
                 set_state "secrets_generated"
                 return 0
             fi
         fi
-        warn "Existing config file found but may be invalid, regenerating..."
+        warn "Existing config file found but may be invalid, regenerating..." "${BASH_LINENO:-0}"
     fi
 
-    log "Generating secure tokens..."
+    log "INFO" "Generating secure tokens..." "${BASH_LINENO:-0}"
 
     # Generate 64-character tokens
     local auth_token
     local cron_secret
     auth_token=$(openssl rand -base64 48 | head -c 64)
     cron_secret=$(openssl rand -base64 48 | head -c 64)
+
+    # Log masked tokens for forensic purposes
+    local masked_auth
+    local masked_cron
+    masked_auth=$(mask_partial "$auth_token")
+    masked_cron=$(mask_partial "$cron_secret")
+    log "INFO" "Generated authenticatorToken: $masked_auth (64 chars)" "${BASH_LINENO:-0}"
+    log "INFO" "Generated cronSecret: $masked_cron (64 chars)" "${BASH_LINENO:-0}"
 
     # Create configuration with sshPort
     cat > "$config_file" << EOF
@@ -571,7 +555,7 @@ EOF
     chmod 640 "$config_file"
     chown "$SERVICE_USER:$SERVICE_USER" "$config_file"
 
-    # Display tokens to user
+    # Display tokens to user (FULL tokens, not masked - user needs to save them)
     echo ""
     echo -e "${YELLOW}===============================================================${NC}"
     echo -e "${YELLOW}  ⚠️  IMPORTANT: SAVE THESE TOKENS SECURELY ⚠️${NC}"
@@ -838,6 +822,9 @@ create_backward_compat_symlink() {
 # ========== MAIN EXECUTION ==========
 
 main() {
+    # Initialize logging
+    init_logging "setup" 2>/dev/null || true
+
     echo ""
     echo "============================================"
     echo "  Sidedoor SSH/SFTP Certificate Management"
@@ -846,6 +833,9 @@ main() {
     echo ""
     echo -e "Service User: ${GREEN}$SERVICE_USER${NC}"
     echo -e "API Port:     ${GREEN}$API_PORT${NC}"
+
+    # Log setup parameters
+    log "INFO" "Setup started with SERVICE_USER=$SERVICE_USER, API_PORT=$API_PORT" "${BASH_LINENO:-0}"
 
     # Detect setup mode
     SETUP_MODE=$(detect_setup_mode)

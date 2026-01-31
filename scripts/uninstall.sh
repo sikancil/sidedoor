@@ -35,17 +35,12 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 
+# Source logging library
+source "$SCRIPT_DIR/lib/logging.sh"
+
 # Default values
 DRY_RUN=false
 LOCAL_DEV_PATH="/Users/dimasarif/DATA/WORK/Pegasus/vm-access"
-
-# Colors
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-CYAN='\033[0;36m'
-NC='\033[0m'
 
 # Tracking variables for summary
 SERVICES_STOPPED=0
@@ -113,37 +108,15 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-# ========== UTILITY FUNCTIONS ==========
-
-log() {
-    echo -e "${GREEN}[UNINSTALL]${NC} $1"
-}
-
-warn() {
-    echo -e "${YELLOW}[WARNING]${NC} $1"
-}
-
-error() {
-    echo -e "${RED}[ERROR]${NC} $1"
-}
-
-info() {
-    echo -e "${CYAN}[INFO]${NC} $1"
-}
-
-phase() {
-    echo ""
-    echo -e "${BLUE}===============================================================${NC}"
-    echo -e "${BLUE}  $1${NC}"
-    echo -e "${BLUE}===============================================================${NC}"
-    echo ""
-}
+# ========== DRY RUN LOGGING ==========
 
 dry_run_log() {
     if [[ "$DRY_RUN" == true ]]; then
         echo -e "${YELLOW}[DRY-RUN]${NC} $1"
     fi
 }
+
+# ========== UTILITY FUNCTIONS ==========
 
 # Format bytes to human readable
 format_size() {
@@ -706,14 +679,20 @@ show_summary() {
 # ========== MAIN ==========
 
 main() {
+    # Initialize logging
+    init_logging "uninstall" 2>/dev/null || true
+
     echo ""
     echo -e "${BLUE}=== Sidedoor Uninstall ===${NC}"
     echo ""
 
     if [[ "$DRY_RUN" == true ]]; then
-        warn "DRY-RUN MODE: No actual changes will be made"
+        warn "DRY-RUN MODE: No actual changes will be made" "${BASH_LINENO:-0}"
         echo ""
     fi
+
+    # Log uninstall parameters
+    log "INFO" "Uninstall started with DRY_RUN=$DRY_RUN" "${BASH_LINENO:-0}"
 
     # Safety checks
     check_root
@@ -725,7 +704,7 @@ main() {
         echo -n "Continue with uninstall? (y/N): "
         read -r response
         if [[ ! "$response" =~ ^[Yy]$ ]]; then
-            log "Uninstall cancelled"
+            log "INFO" "Uninstall cancelled" "${BASH_LINENO:-0}"
             exit 0
         fi
         echo ""
