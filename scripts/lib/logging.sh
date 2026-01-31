@@ -238,7 +238,7 @@ _write_log_header() {
 _write_to_log() {
     local level=$1
     local message=$2
-    local script=${3:-${LOG_SCRIPT_NAME:-unknown}
+    local script="${3:-${LOG_SCRIPT_NAME:-unknown}}"
     local line=${4:-0}
 
     if [[ "${NO_LOG_FILE:-}" == "true" ]]; then
@@ -406,17 +406,6 @@ close_logging() {
     # Display log location to user
     echo ""
     echo -e "${CYAN}[LOG]${NC} Log saved to: $LOG_FILE"
-}
-
-# ========== COMPATIBILITY LAYER (DEPRECATED) ==========
-
-# These functions maintain backward compatibility during transition
-# Scripts should migrate to using log(), info(), warn(), error(), phase()
-
-# Deprecated: Use log() instead
-log_message() {
-    echo "[DEPRECATED] log_message() is deprecated, use log() instead" >&2
-    log "INFO" "$1" "${2:-0}"
 }
 
 # Export functions for use in other scripts
