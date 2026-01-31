@@ -13,14 +13,17 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m'
 
+# log prints an informational message prefixed with a green "[UPDATE]" tag to stdout.
 log() {
     echo -e "${GREEN}[UPDATE]${NC} $1"
 }
 
+# warn prints a warning message prefixed with [WARNING] in yellow to stdout.
 warn() {
     echo -e "${YELLOW}[WARNING]${NC} $1"
 }
 
+# error prints an error message prefixed with a red [ERROR] tag and resets the color; the message is taken from the first argument.
 error() {
     echo -e "${RED}[ERROR]${NC} $1"
 }

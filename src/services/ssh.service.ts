@@ -468,6 +468,11 @@ Match User n0x*
 
 // Lazy singleton instance
 let _sshServiceInstance: SSHService | null = null;
+/**
+ * Get the singleton SSHService instance, creating it on first call.
+ *
+ * @returns The shared `SSHService` instance used by the application.
+ */
 export function getSSHService(): SSHService {
   if (!_sshServiceInstance) {
     _sshServiceInstance = new SSHService();

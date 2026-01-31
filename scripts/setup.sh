@@ -46,7 +46,7 @@ MIGRATE_SSH_PRIVATE_KEYS=false
 SETUP_MODE=""
 SSH_MIGRATION_DONE="${SSH_MIGRATION_DONE:-false}"  # Set by install.sh if migration already done
 
-# Help function
+# show_help displays usage, available options, environment variables, and usage examples for the Sidedoor setup script, then exits.
 show_help() {
     cat << EOF
 Sidedoor Setup Script - Smart idempotent setup for Ubuntu servers
@@ -133,7 +133,10 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-# ========== REQUIREMENTS CHECK ==========
+# check_requirements performs prerequisite checks required to run the setup on Ubuntu.
+# It ensures the script is running as root (attempts to elevate), verifies the OS is Ubuntu,
+# warns if memory is less than 512MB or disk free space is less than 1GB, and verifies systemd is available.
+# Exits with status 1 if any critical requirement is unmet; on success it sets state "prerequisites_checked".
 
 check_requirements() {
     phase "PHASE 1: Prerequisites Check"
@@ -195,7 +198,7 @@ check_requirements() {
     log "Prerequisites check passed"
 }
 
-# ========== BUN INSTALLATION ==========
+# install_bun installs the Bun JavaScript runtime (version 1.3.0) and exits the script if installation fails.
 
 install_bun() {
     phase "PHASE 2: Install Bun Runtime"
@@ -209,7 +212,7 @@ install_bun() {
     fi
 }
 
-# ========== USER CREATION ==========
+# create_users creates or validates the service user, installs an SSH public key for the existing 'ubuntu' account if provided, optionally migrates SSH keys from /root/.ssh to the service user (including private keys when enabled), and records the users_created state.
 
 create_users() {
     phase "PHASE 3: Create Users" "${BASH_LINENO:-0}"
@@ -268,7 +271,7 @@ create_users() {
     fi
 }
 
-# ========== SSH CONFIGURATION ==========
+# configure_ssh configures OpenSSH to chroot dynamic `n0x*` users into /home/sftp/%u by writing /etc/ssh/sshd_config.d/sidedoor.conf, validating the config, reloading the ssh service on success, and removing the config and exiting on validation failure.
 
 configure_ssh() {
     phase "PHASE 4: Configure SSH for Chroot"
@@ -314,7 +317,7 @@ EOF
 
 # ========== SUDOERS CONFIGURATION ==========
 
-# Install systemd helper script
+# install_systemd_helper installs the sidedoor systemd helper script into /usr/local/sbin and sets executable permissions.
 install_systemd_helper() {
     local helper_path="/usr/local/sbin/sidedoor-systemd-helper"
     local helper_source="$PROJECT_ROOT/scripts/systemd-helper.sh"
@@ -329,6 +332,12 @@ install_systemd_helper() {
     fi
 }
 
+# configure_sudoers creates and validates the /etc/sudoers.d/sidedoor policy to enable passwordless sudo for the sudo group and ensures the systemd helper is installed.
+# 
+# Creates a group-based NOPASSWD rule under /etc/sudoers.d/sidedoor, enforces correct permissions, and validates syntax with visudo.
+# When executed as root, it will remove the service user's password to ensure passwordless sudo takes effect and will attempt to verify passwordless sudo for SERVICE_USER.
+# On validation failure the created sudoers file is removed and the function exits with a non-zero status.
+# On success, the function records completion by setting the "sudoers_configured" state.
 configure_sudoers() {
     phase "PHASE 5: Setup Sudoers"
 
@@ -417,7 +426,7 @@ EOF
     set_state "sudoers_configured"
 }
 
-# ========== CREATE DIRECTORIES ==========
+# create_directories ensures required Sidedoor directories exist, sets ownership to SERVICE_USER (falls back to group `www-data`), enforces permissions, and records the "directories_created" state.
 
 create_directories() {
     phase "PHASE 6: Create Directories"
@@ -443,7 +452,7 @@ create_directories() {
     log "All directories validated"
 }
 
-# ========== INSTALL APPLICATION ==========
+# install_application installs or updates the Sidedoor application under /opt/sidedoor by copying project files, running dependency installation as the service user, fixing ownership, and marking the installation state.
 
 install_application() {
     phase "PHASE 7: Install Application"
@@ -489,7 +498,7 @@ install_application() {
     set_state "app_installed"
 }
 
-# ========== GENERATE SECRETS ==========
+# generate_secrets generates two 64-character cryptographic tokens (authenticatorToken and cronSecret), writes them along with default service configuration to /etc/sidedoor/config.json, sets strict file permissions and ownership, and prints the full tokens to stdout for the operator to save.
 
 generate_secrets() {
     phase "PHASE 8: Generate Secrets" "${BASH_LINENO:-0}"
@@ -572,7 +581,7 @@ EOF
     set_state "secrets_generated"
 }
 
-# ========== CONFIGURE SERVICE ==========
+# configure_service creates or installs the systemd unit for the sidedoor service, reloads the systemd daemon, and enables the service.
 
 configure_service() {
     phase "PHASE 9: Configure Systemd Service"
@@ -628,7 +637,7 @@ EOF
     set_state "service_configured"
 }
 
-# ========== START SERVICE ==========
+# start_service starts the sidedoor systemd service, restarts it if running during an update, waits up to 30 seconds for the service to become active, and exits with an error if it fails to start.
 
 start_service() {
     phase "PHASE 10: Start Service"
@@ -669,7 +678,7 @@ start_service() {
     exit 1
 }
 
-# ========== SECURITY HARDENING ==========
+# apply_security_hardening applies system security hardening: installs and configures UFW and Fail2ban, applies SSH restrictions, and records state; it is skipped by default to avoid SSH lockout and respects the --skip-hardening flag.
 
 apply_security_hardening() {
     phase "PHASE 11: Security Hardening"
@@ -783,7 +792,7 @@ EOF
     log "Security hardening complete"
 }
 
-# ========== VERIFICATION ==========
+# run_verification runs the post-setup verification script (verify-setup.sh) if present, logs warnings on non-fatal failures, and marks verification as complete.
 
 run_verification() {
     phase "PHASE 12: Verification"
@@ -805,7 +814,7 @@ run_verification() {
     set_state "verification_complete"
 }
 
-# ========== CREATE BACKWARD COMPATIBILITY SYMLINK ==========
+# create_backward_compat_symlink creates or updates a symbolic link setup-production.sh in the script directory pointing to setup.sh, but leaves an existing non-symlink file at that path untouched.
 
 create_backward_compat_symlink() {
     local target="$SCRIPT_DIR/setup.sh"
@@ -819,7 +828,7 @@ create_backward_compat_symlink() {
     ln -sf "$target" "$link" 2>/dev/null || true
 }
 
-# ========== MAIN EXECUTION ==========
+# main orchestrates the idempotent Sidedoor setup: it initializes logging and state, handles verify-only and force modes, runs all setup phases in sequence (prerequisites, runtime, users, SSH, sudoers, directories, application, secrets, service setup/start, hardening, verification), creates a backward-compatibility symlink, and prints a final summary.
 
 main() {
     # Initialize logging

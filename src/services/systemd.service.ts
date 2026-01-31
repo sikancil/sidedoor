@@ -187,6 +187,11 @@ export class SystemdService {
 
 // Lazy singleton instance
 let _systemdServiceInstance: SystemdService | null = null;
+/**
+ * Get the singleton SystemdService instance, creating it on first call.
+ *
+ * @returns The memoized SystemdService instance used by the application
+ */
 export function getSystemdService(): SystemdService {
   if (!_systemdServiceInstance) {
     _systemdServiceInstance = new SystemdService();

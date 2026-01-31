@@ -504,6 +504,11 @@ Contact your system administrator with your Certificate ID.
 
 // Lazy singleton instance
 let _certificateServiceInstance: CertificateService | null = null;
+/**
+ * Get the shared singleton CertificateService instance.
+ *
+ * @returns The singleton CertificateService instance; created on first invocation if it does not yet exist.
+ */
 export function getCertificateService(): CertificateService {
   if (!_certificateServiceInstance) {
     _certificateServiceInstance = new CertificateService();

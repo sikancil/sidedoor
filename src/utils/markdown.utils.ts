@@ -10,6 +10,16 @@ export interface ReadmeTemplateData {
   instructions: string;
 }
 
+/**
+ * Generate a Markdown README describing SSH/SFTP access for a certificate.
+ *
+ * Produces a complete README containing certificate details, SFTP/SSH connection commands,
+ * GUI client instructions, permission descriptions, troubleshooting steps, configuration
+ * commands, additional instructions, and a footer note about the certificate.
+ *
+ * @param data - Template data used to populate the README (certificate, optional host and port, username, path to the private key, and additional instructions)
+ * @returns A Markdown-formatted string describing how to access the server using the provided certificate and key
+ */
 export function generateReadmeMarkdown(data: ReadmeTemplateData): string {
   const { certificate, host, port = 22, username, privateKeyPath, instructions } = data;
   const permissions = parsePermissions(certificate.permissions);
@@ -120,6 +130,12 @@ ${instructions}
 `;
 }
 
+/**
+ * Produce a Markdown-formatted list describing the provided permission flags.
+ *
+ * @param permissions - Array of permission flag strings (e.g., 'sftp', 'ssh', 'read-only', 'read-write')
+ * @returns A Markdown bullet list with human-readable descriptions for each recognized permission; `- No special permissions specified` if none match
+ */
 function generatePermissionDescriptions(permissions: string[]): string {
   const descriptions: string[] = [];
 
@@ -142,6 +158,15 @@ function generatePermissionDescriptions(permissions: string[]): string {
   return descriptions.join('\n') || '- No special permissions specified';
 }
 
+/**
+ * Convert a Markdown string to an HTML string using simple, regex-based tag mappings.
+ *
+ * Supports headings (h1–h3), bold, italic, inline code, fenced code blocks (with optional `bash` class),
+ * list items, and converts newlines to `<br>` elements.
+ *
+ * @param markdown - The Markdown source to convert
+ * @returns An HTML string containing `h1`–`h3`, `strong`, `em`, `code`, `pre` (with optional `class="bash"`), `li`, and `<br>` tags
+ */
 export function formatReadmeAsHtml(markdown: string): string {
   // Simple markdown to HTML conversion
   return markdown
@@ -157,6 +182,12 @@ export function formatReadmeAsHtml(markdown: string): string {
     .replace(/\n/gim, '<br>');
 }
 
+/**
+ * Generate a Markdown section listing API endpoints for downloading certificate assets.
+ *
+ * @param certificateId - Certificate identifier inserted into each download URL
+ * @returns A Markdown snippet containing three curl examples to download the private key, the README file, and the README as JSON with `certificateId` embedded in the endpoint paths
+ */
 export function getDownloadInstructions(certificateId: string): string {
   return `
 ### Download Links

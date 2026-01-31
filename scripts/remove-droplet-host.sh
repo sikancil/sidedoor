@@ -18,20 +18,23 @@ NC='\033[0m'
 # Script directory
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+# log prints an informational message prefixed with "[INFO]" in green to stdout.
 log() {
     echo -e "${GREEN}[INFO]${NC} $1"
 }
 
+# error prints an error message in red to stderr using the first argument and then exits with status 1.
 error() {
     echo -e "${RED}[ERROR]${NC} $1" >&2
     exit 1
 }
 
+# warn prints a warning message prefixed with [WARN] in yellow to stderr.
 warn() {
     echo -e "${YELLOW}[WARN]${NC} $1" >&2
 }
 
-# Usage
+# usage displays usage information for removing SSH known_hosts entries for a droplet IP and exits with status 1.
 usage() {
     cat << EOF
 Usage: $(basename "$0") <IP_ADDRESS>

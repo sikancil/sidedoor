@@ -53,21 +53,25 @@ PASS=0
 FAIL=0
 WARN=0
 
+# check_pass records a passing result by incrementing the PASS counter and prints a green "PASS" line followed by the provided message.
 check_pass() {
     echo -e "${GREEN}✓ PASS${NC} - $1"
     ((PASS++))
 }
 
+# check_fail records a failing result by printing a red "✗ FAIL" message with the provided text and increments the FAIL counter.
 check_fail() {
     echo -e "${RED}✗ FAIL${NC} - $1"
     ((FAIL++))
 }
 
+# check_warn prints a yellow "WARN" line with the provided message and increments the WARN counter.
 check_warn() {
     echo -e "${YELLOW}⚠ WARN${NC} - $1"
     ((WARN++))
 }
 
+# check_info prints an informational message prefixed with a blue "INFO" label and resets color afterwards.
 check_info() {
     echo -e "${BLUE}ℹ INFO${NC} - $1"
 }

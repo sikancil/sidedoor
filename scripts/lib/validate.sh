@@ -11,7 +11,8 @@ source "$SCRIPT_DIR_LIB/state.sh"
 
 # Setup mode detection
 # Detects if we're in install, update, or repair mode
-# Usage: detect_setup_mode # exports SETUP_MODE variable
+# detect_setup_mode determines the current setup mode ("install", "update", or "repair") based on the presence of /etc/sidedoor/config.json and systemd state.
+# It exports SETUP_MODE with the detected mode and echoes the mode to stdout.
 detect_setup_mode() {
     local config_file="/etc/sidedoor/config.json"
     local mode="install"
@@ -31,7 +32,7 @@ detect_setup_mode() {
 }
 
 # Ensure Bun is installed and meets minimum version
-# Usage: ensure_bun [min_version]
+# ensure_bun ensures Bun is installed at or above the specified min_version (default 1.3.0); if Bun is missing, outdated, or nonfunctional it installs or reinstalls Bun and records the installed version.
 ensure_bun() {
     local min_version="${1:-1.3.0}"
 
@@ -63,7 +64,8 @@ ensure_bun() {
     return 0
 }
 
-# Internal: Install Bun
+# _install_bun installs the Bun JavaScript runtime system-wide into /opt/bun, creates symlinks in /usr/local/bin, updates PATH/BUN_INSTALL, and records the installed version via set_state_meta.
+# Returns 0 on success, 1 on failure.
 _install_bun() {
     apt-get update -qq
     apt-get install -y -qq unzip curl ca-certificates >/dev/null 2>&1
@@ -95,7 +97,7 @@ _install_bun() {
 }
 
 # Ensure user exists with correct groups
-# Usage: ensure_user "username"
+# ensure_user ensures a user exists and is a member of the sudo and www-data groups; creates the user if missing and adds any missing groups.
 ensure_user() {
     local user=$1
     local required_groups="sudo|www-data"
@@ -132,7 +134,7 @@ ensure_user() {
     return 0
 }
 
-# Internal: Create user
+# _create_user creates the specified user (creates a regular user with a home for "ubuntu" and a system user otherwise), sets the login shell to /bin/bash, adds the user to sudo and www-data groups, and marks state "users_created".
 _create_user() {
     local user=$1
 
@@ -151,7 +153,7 @@ _create_user() {
 }
 
 # Ensure directory exists with correct ownership and permissions
-# Usage: ensure_directory "/path/to/dir" "user:group" "755"
+# ensure_directory ensures a directory exists with the specified owner and permissions, creating it if missing and fixing ownership or mode as needed.
 ensure_directory() {
     local dir=$1
     local owner=${2}
@@ -191,7 +193,7 @@ ensure_directory() {
 }
 
 # Validate SSH configuration syntax
-# Usage: validate_ssh_config
+# validate_ssh_config validates the SSH server configuration syntax by testing sshd and exits with status 0 on success or nonzero on failure.
 validate_ssh_config() {
     if sshd -t 2>/dev/null; then
         return 0
@@ -201,7 +203,7 @@ validate_ssh_config() {
 }
 
 # Validate sudoers syntax
-# Usage: validate_sudoers "/etc/sudoers.d/sidedoor"
+# validate_sudoers validates the syntax of the given sudoers file path using visudo and returns success (0) if the file is valid, non-zero otherwise.
 validate_sudoers() {
     local file=$1
     if visudo -c -f "$file" &>/dev/null; then
@@ -212,21 +214,21 @@ validate_sudoers() {
 }
 
 # Check if service is running
-# Usage: is_service_running "sidedoor"
+# is_service_running checks whether the given systemd service is active.
 is_service_running() {
     local service=$1
     systemctl is-active --quiet "$service" 2>/dev/null
 }
 
 # Check if service is enabled
-# Usage: is_service_enabled "sidedoor"
+# is_service_enabled checks whether the specified systemd service is enabled at boot.
 is_service_enabled() {
     local service=$1
     systemctl is-enabled --quiet "$service" 2>/dev/null
 }
 
 # Get service status
-# Usage: get_service_status "sidedoor" # outputs: active/inactive/failed/unknown
+# get_service_status echoes the status of a systemd service as one of: active, failed, inactive, or unknown.
 get_service_status() {
     local service=$1
     if systemctl is-active --quiet "$service" 2>/dev/null; then
@@ -241,7 +243,7 @@ get_service_status() {
 }
 
 # Validate configuration file JSON syntax
-# Usage: validate_json "/path/to/config.json"
+# validate_json validates the JSON syntax of a file using `jq` when available; otherwise performs a lightweight structural check.
 validate_json() {
     local file=$1
     if command -v jq &>/dev/null; then
@@ -253,7 +255,7 @@ validate_json() {
 }
 
 # Validate user access and permissions
-# Usage: validate_user_access "ubuntu"
+# validate_user_access validates that the specified user has a home directory, can write to it, is a member of the sudo group, and can run sudo without a password (warns if a password is required).
 validate_user_access() {
     local user=$1
 

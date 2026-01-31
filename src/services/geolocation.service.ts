@@ -221,6 +221,13 @@ export class GeolocationService {
 
 // Lazy singleton instance
 let _geolocationServiceInstance: GeolocationService | null = null;
+/**
+ * Get the singleton GeolocationService instance.
+ *
+ * Creates and caches the GeolocationService on first invocation; subsequent calls return the same instance.
+ *
+ * @returns The singleton GeolocationService instance.
+ */
 export function getGeolocationService(): GeolocationService {
   if (!_geolocationServiceInstance) {
     _geolocationServiceInstance = new GeolocationService();

@@ -25,7 +25,7 @@ SUDO_TIMESTAMP_TIMEOUT=${SUDO_TIMESTAMP_TIMEOUT:-15}
 # Last sudo refresh time
 _SUDO_LAST_REFRESH=0
 
-# Check if we need to refresh sudo timestamp
+# sudo_need_refresh determines whether the sudo timestamp should be refreshed when more than 300 seconds have elapsed since _SUDO_LAST_REFRESH. It returns success (0) if a refresh is needed, failure (1) otherwise.
 sudo_need_refresh() {
     local now
     now=$(date +%s)
@@ -37,7 +37,9 @@ sudo_need_refresh() {
     return 1
 }
 
-# Refresh sudo timestamp (extends timeout)
+# sudo_refresh refreshes the sudo credential timestamp to extend the sudo timeout.
+# If run as root, updates _SUDO_LAST_REFRESH and returns. If not root, attempts a non-interactive sudo refresh;
+# on success updates _SUDO_LAST_REFRESH, on failure prints an error and exits with status 1.
 sudo_refresh() {
     if [[ $EUID -eq 0 ]]; then
         _SUDO_LAST_REFRESH=$(date +%s)
@@ -56,7 +58,7 @@ sudo_refresh() {
 }
 
 # Ensure script is running with root privileges
-# Automatically re-runs script with sudo if needed
+# ensure_elevated ensures the current script is running as root; if not, it attempts to authenticate via sudo and re-executes the script with elevated privileges, or prints errors and exits on failure.
 ensure_elevated() {
     # Already running as root
     if [[ $EUID -eq 0 ]]; then
@@ -102,7 +104,8 @@ ensure_elevated() {
 }
 
 # Alternative: Check and suggest sudo command (non-auto-elevating)
-# Use this if you want to inform the user instead of auto-elevating
+# check_elevated ensures the script is running as root; if not, it prints instructions for running with sudo and exits with status 1.
+# When already running as root the function returns with status 0.
 check_elevated() {
     if [[ $EUID -eq 0 ]]; then
         return 0
@@ -118,7 +121,7 @@ check_elevated() {
     exit 1
 }
 
-# Show sudo timeout information
+# sudo_timeout_info reports the current sudo credential caching status and prints the default timeout, instructions to change it, and a note that this script refreshes credentials during long operations.
 sudo_timeout_info() {
     local timeout_file
     timeout_file=$(sudo -n env 2>/dev/null | grep "SUDO_USER" && echo "active" || echo "inactive")
@@ -134,7 +137,7 @@ sudo_timeout_info() {
     info ""
 }
 
-# Validate sudo configuration
+# validate_sudo_config validates that the current user (SUDO_USER or USER) is a member of the sudo group; prints instructions to add the user to the sudo group and returns 1 if not, returns 0 otherwise.
 validate_sudo_config() {
     local current_user="${SUDO_USER:-$USER}"
 

@@ -29,18 +29,23 @@ NC='\033[0m'
 # ========== UTILITY FUNCTIONS ==========
 # Define if not already defined (allows standalone usage)
 if ! declare -f log >/dev/null; then
-    log() { echo -e "${GREEN}[SSH-MIGRATE]${NC} $1"; }
+    # log prints an informational message prefixed with "[SSH-MIGRATE]" in green.
+log() { echo -e "${GREEN}[SSH-MIGRATE]${NC} $1"; }
 fi
 if ! declare -f warn >/dev/null; then
-    warn() { echo -e "${YELLOW}[WARNING]${NC} $1"; }
+    # warn prints a warning message prefixed with a yellow "[WARNING]" tag.
+warn() { echo -e "${YELLOW}[WARNING]${NC} $1"; }
 fi
 if ! declare -f error >/dev/null; then
-    error() { echo -e "${RED}[ERROR]${NC} $1"; }
+    # error prints an error message prefixed with a red "[ERROR]" tag followed by the provided message.
+error() { echo -e "${RED}[ERROR]${NC} $1"; }
 fi
 if ! declare -f info >/dev/null; then
-    info() { echo -e "${CYAN}[INFO]${NC} $1"; }
+    # info prints an informational message to stdout prefixed with "[INFO]" styled in cyan.
+info() { echo -e "${CYAN}[INFO]${NC} $1"; }
 fi
 if ! declare -f phase >/dev/null; then
+    # phase prints a formatted phase header block with a title passed as the first argument.
     phase() {
         echo ""
         echo -e "${BLUE}===============================================================${NC}"
@@ -53,7 +58,7 @@ fi
 # SSH Migration state file (separate from setup state)
 SSH_MIGRATION_STATE="/etc/sidedoor/.ssh-migration-state"
 
-# Initialize SSH migration state file
+# _ssh_init_state ensures the SSH migration state directory exists and creates the state file with restrictive permissions (directory mode 755, file mode 600).
 _ssh_init_state() {
     local state_dir
     state_dir=$(dirname "$SSH_MIGRATION_STATE")
@@ -69,7 +74,7 @@ _ssh_init_state() {
     fi
 }
 
-# Set migration state entry
+# _ssh_set_state writes a key/value pair into the SSH migration state file, replacing any existing entry for the given key.
 _ssh_set_state() {
     local key=$1
     local value=$2
@@ -80,7 +85,7 @@ _ssh_set_state() {
     echo "${key}=${value}" >> "$SSH_MIGRATION_STATE"
 }
 
-# Get migration state entry
+# _ssh_get_state retrieves the value for a given key from the migration state file; it echoes the value when present and returns 0, otherwise returns 1.
 _ssh_get_state() {
     local key=$1
     local result
@@ -92,7 +97,7 @@ _ssh_get_state() {
     return 1
 }
 
-# Check if migration was done
+_ssh_is_migrated checks whether SSH migration to the specified target user (optionally including private keys when include_private is "true") is recorded in the state file and returns 0 if found, 1 if not.
 _ssh_is_migrated() {
     local target_user=$1
     local include_private=$2
@@ -105,7 +110,7 @@ _ssh_is_migrated() {
     _ssh_get_state "$state_key" &>/dev/null
 }
 
-# Mark migration as complete
+# _ssh_mark_migrated records that SSH migration to a target user has completed by writing a timestamped state entry; if the second argument is "true" the entry indicates private keys were included.
 _ssh_mark_migrated() {
     local target_user=$1
     local include_private=$2
@@ -119,7 +124,7 @@ _ssh_mark_migrated() {
     _ssh_set_state "$state_key" "$timestamp"
 }
 
-# Get SSH directory path for user
+# _ssh_get_ssh_dir returns the SSH directory for the specified user: "/root/.ssh" for root and "/home/<user>/.ssh" for any other user.
 _ssh_get_ssh_dir() {
     local user=$1
 
@@ -131,7 +136,7 @@ _ssh_get_ssh_dir() {
 }
 
 # Extract key fingerprint (for deduplication)
-# Handles: ssh-rsa, ssh-ed25519, ssh-ecdsa, etc.
+# _ssh_get_key_fingerprint extracts the base64 key blob from an SSH public-key line and echoes its MD5 fingerprint in hex (prints nothing on invalid input).
 _ssh_get_key_fingerprint() {
     local key_line=$1
 
@@ -140,7 +145,7 @@ _ssh_get_key_fingerprint() {
     echo "$key_line" | awk '{print $2}' | base64 -d 2>/dev/null | md5sum | cut -d' ' -f1
 }
 
-# Check if line is a valid SSH key
+# _ssh_is_valid_key returns success if the given line is a non-empty, non-comment SSH public key entry that begins with a recognized key type (e.g., ssh-rsa, ssh-ed25519, ssh-ecdsa, ecdsa-sha2-nistp*, ssh-dss).
 _ssh_is_valid_key() {
     local line=$1
 
@@ -153,7 +158,8 @@ _ssh_is_valid_key() {
 }
 
 # Merge SSH keys from source to target file
-# Deduplicates by key fingerprint, preserves comments
+# _ssh_merge_keys merges public keys from source_file into target_file for target_user, preserving comment lines and deduplicating entries by key fingerprint.
+# It preserves existing target keys, appends non-duplicate keys from the source, sets ownership and mode 600 on the resulting file, and logs how many keys were added versus skipped.
 _ssh_merge_keys() {
     local source_file=$1
     local target_file=$2
@@ -201,7 +207,7 @@ _ssh_merge_keys() {
     log "  Added ${#added_keys[@]} keys, skipped $skipped_keys duplicates"
 }
 
-# Copy SSH keys from source to target file
+# _ssh_copy_keys copies SSH public key entries from a source file to a target file, ensures the target directory exists, sets ownership and secure permissions for the target user, and logs the number of keys copied.
 _ssh_copy_keys() {
     local source_file=$1
     local target_file=$2
@@ -227,7 +233,7 @@ _ssh_copy_keys() {
     log "  Copied $key_count keys"
 }
 
-# Merge SSH config files (smart combine)
+# _ssh_merge_config merges Host blocks from a source SSH config into a target config, preserving existing Host entries, appending non-duplicate Host blocks from the source, and setting ownership and permissions for the resulting target file.
 _ssh_merge_config() {
     local source_file=$1
     local target_file=$2
@@ -282,7 +288,7 @@ _ssh_merge_config() {
     log "  Merged ${#merged_hosts[@]} host entries"
 }
 
-# Merge known_hosts files
+# _ssh_merge_known_hosts merges entries from a source known_hosts into a target known_hosts, appending non-duplicate host entries (deduplicated by host pattern), preserving existing entries, and setting ownership and permissions for the target user.
 _ssh_merge_known_hosts() {
     local source_file=$1
     local target_file=$2
@@ -324,7 +330,15 @@ _ssh_merge_known_hosts() {
     log "  Added $added_entries entries, skipped $skipped_entries duplicates"
 }
 
-# Copy private keys with warning
+# _ssh_copy_private_keys copies SSH private keys from a source directory into a user's target .ssh directory and prepares rollback markers when requested.
+# 
+# For each candidate file in source_dir that contains a private key header, the function copies the key to target_dir without overwriting existing keys, sets ownership to target_user and mode 600, and optionally creates a `.migrated` marker in backup_dir for rollback. It also copies the corresponding public key (`<key>.pub`) if present and sets its ownership and mode 644.
+# 
+# Parameters:
+#   source_dir  - directory to scan for private key files (e.g., /root/.ssh)
+#   target_dir  - destination .ssh directory for the target user
+#   target_user - username owning the target files (used for chown)
+#   backup_dir  - optional directory where `.migrated` marker files will be created for each copied private key (omit or pass empty to disable)
 _ssh_copy_private_keys() {
     local source_dir=$1
     local target_dir=$2
@@ -390,7 +404,12 @@ _ssh_copy_private_keys() {
     done
 }
 
-# Main SSH migration function
+# ssh_migrate_keys migrates SSH keys and configuration from root into a specified user account, optionally copying private keys.
+# This creates backups, merges or copies authorized_keys, SSH config, and known_hosts with deduplication, copies public keys,
+# can copy private keys when requested, marks migration state for idempotency, and disables root SSH login after success.
+# target_user: username to receive the migrated SSH data (defaults to "ubuntu").
+# include_private: "true" to also copy private keys, otherwise "false" (defaults to "false").
+# Requires running as root to access /root/.ssh; returns non-zero on fatal errors (e.g., target is root or target home missing).
 ssh_migrate_keys() {
     local target_user="${1:-ubuntu}"
     local include_private="${2:-false}"
@@ -550,7 +569,7 @@ ssh_migrate_keys() {
 }
 
 # Disable root SSH login for security
-# After migrating SSH keys to service user, disable direct root access
+# _ssh_disable_root_login disables direct root SSH access by creating an sshd_config fragment that denies root and password logins and then reloads SSH; the optional target_user (defaults to "ubuntu") is used in informational messages.
 _ssh_disable_root_login() {
     local target_user="${1:-ubuntu}"
 
@@ -588,7 +607,7 @@ EOF
     return 0
 }
 
-# Re-enable root SSH login (for rollback/debugging)
+# _ssh_enable_root_login re-enables root SSH login by removing the sidedoor SSHD config fragment (/etc/ssh/sshd_config.d/sidedoor-root-disable.conf) if present and reloading or restarting the SSH service.
 _ssh_enable_root_login() {
     log "⚠️  Re-enabling root SSH login (for debugging)..."
 
@@ -611,7 +630,7 @@ _ssh_enable_root_login() {
     return 0
 }
 
-# Rollback SSH migration
+# ssh_rollback_migration rolls back an SSH migration for a specified target user by restoring backed-up SSH files or removing migrated keys, re-enabling root SSH login, and clearing the migration state.
 ssh_rollback_migration() {
     local target_user="${1:-ubuntu}"
     local include_private="${2:-false}"

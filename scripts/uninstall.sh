@@ -50,7 +50,7 @@ FILES_REMOVED=0
 MOUNTS_UNMOUNTED=0
 TOTAL_SIZE_BYTES=0
 
-# Help function
+# show_help displays usage, available options, a concise list of removed vs. preserved artifacts, example invocations, and exits the script.
 show_help() {
     cat << EOF
 Sidedoor Uninstall Script - Remove all Sidedoor installation artifacts
@@ -108,7 +108,7 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-# ========== DRY RUN LOGGING ==========
+# dry_run_log prints a prefixed dry-run message when DRY_RUN is true.
 
 dry_run_log() {
     if [[ "$DRY_RUN" == true ]]; then
@@ -118,7 +118,7 @@ dry_run_log() {
 
 # ========== UTILITY FUNCTIONS ==========
 
-# Format bytes to human readable
+# format_size converts a byte count into a human-readable string using B, KB, MB, or GB units.
 format_size() {
     local bytes=$1
     if [[ $bytes -lt 1024 ]]; then
@@ -132,7 +132,7 @@ format_size() {
     fi
 }
 
-# Get file/directory size in bytes
+# get_size prints the size in bytes of the given file or directory, or 0 if the path does not exist or the size cannot be determined.
 get_size() {
     local path=$1
     if [[ -d "$path" ]]; then
@@ -144,7 +144,7 @@ get_size() {
     fi
 }
 
-# Safe remove with dry-run support
+# run_rm safely removes a file or directory (or reports the planned removal when DRY_RUN is true), updates TOTAL_SIZE_BYTES and FILES_REMOVED, and logs success or failure.
 run_rm() {
     local description=$1
     local path=$2
@@ -185,7 +185,7 @@ run_rm() {
     fi
 }
 
-# Safe file remove with dry-run support
+# run_rm_file removes the file at the given path if it exists and updates TOTAL_SIZE_BYTES and FILES_REMOVED; in dry-run mode it only logs the planned removal and still updates the counters.
 run_rm_file() {
     local path=$1
 
@@ -212,7 +212,7 @@ run_rm_file() {
     fi
 }
 
-# Safe unmount with dry-run support
+# run_umount safely unmounts the given mount point; in dry-run mode it logs the planned unmount (including source) and increments MOUNTS_UNMOUNTED without performing the unmount.
 run_umount() {
     local mount_point=$1
 
@@ -235,7 +235,7 @@ run_umount() {
     fi
 }
 
-# ========== SAFETY CHECKS ==========
+# check_root ensures the script is run as root; if not, it logs an error, shows usage advice, and exits with status 1.
 
 check_root() {
     if [[ $EUID -ne 0 ]]; then
@@ -245,6 +245,7 @@ check_root() {
     fi
 }
 
+# check_local_dev checks that the current working directory is not the configured local development path and exits with an error if it is.
 check_local_dev() {
     local current_dir
     current_dir=$(pwd)
@@ -257,6 +258,7 @@ check_local_dev() {
     fi
 }
 
+# show_preserved_notice prints a notice explaining which user data and directories will be preserved (service user and SSH keys) and warns that dynamic certificate users (n0x*) will be removed.
 show_preserved_notice() {
     echo ""
     echo -e "${YELLOW}=== NOTICE ===${NC}"
@@ -268,7 +270,7 @@ show_preserved_notice() {
     echo ""
 }
 
-# ========== PHASE 1: STOP SERVICES ==========
+# phase_stop_services stops the main 'sidedoor' systemd service and any 'sidedoor-*.timer' units, incrementing SERVICES_STOPPED and TIMERS_REMOVED; in dry-run mode it only logs the planned stops.
 
 phase_stop_services() {
     phase "PHASE 1: Stop Services"
@@ -303,7 +305,8 @@ phase_stop_services() {
     fi
 }
 
-# ========== PHASE 2: REMOVE SYSTEMD UNITS ==========
+# phase_remove_systemd_units removes Sidedoor-related systemd unit and timer files and reloads the systemd daemon.
+# In non-dry-run mode it disables any matching timer/service units and deletes their unit files; in dry-run mode it only reports the actions and sizes that would be removed.
 
 phase_remove_systemd_units() {
     phase "PHASE 2: Remove Systemd Units"
@@ -348,7 +351,7 @@ phase_remove_systemd_units() {
     fi
 }
 
-# ========== PHASE 3: REMOVE DYNAMIC USERS ==========
+# phase_remove_dynamic_users finds dynamic certificate users matching n0x[0-9a-f]{6}, kills any running processes for each user, and removes the user account and home directory (or logs the planned actions when running in dry-run mode), incrementing USERS_REMOVED for each user.
 
 phase_remove_dynamic_users() {
     phase "PHASE 3: Remove Dynamic Certificate Users"
@@ -382,7 +385,7 @@ phase_remove_dynamic_users() {
     done
 }
 
-# ========== PHASE 4: CLEANUP CHROOT MOUNTS ==========
+# phase_cleanup_chroot_mounts cleans up SFTP chroot directories under /home/sftp by unmounting any mounted paths, removing broken symlinks inside chroot homes, and removing the /home/sftp base directory if it is empty.
 
 phase_cleanup_chroot_mounts() {
     phase "PHASE 4: Cleanup Chroot Mounts"
@@ -436,7 +439,7 @@ phase_cleanup_chroot_mounts() {
     fi
 }
 
-# ========== PHASE 5: REMOVE DATABASE AND STATE FILES ==========
+# phase_remove_database removes the Sidedoor certificates database, related state files and SQLite WAL files, and the /var/lib/sidedoor directory; in dry-run mode it only logs planned removals while updating size and removal counters.
 
 phase_remove_database() {
     phase "PHASE 5: Remove Database and State Files"
@@ -496,7 +499,7 @@ phase_remove_database() {
     fi
 }
 
-# ========== PHASE 6: REMOVE CONFIGURATION ==========
+# phase_remove_configuration removes Sidedoor configuration files under /etc/sidedoor and the sidedoor SSH snippet, deletes the config directory if it is empty, and reloads sshd when the SSH snippet is removed.
 
 phase_remove_configuration() {
     phase "PHASE 6: Remove Configuration"
@@ -532,7 +535,7 @@ phase_remove_configuration() {
     fi
 }
 
-# ========== PHASE 7: REMOVE APPLICATION FILES ==========
+# phase_remove_application_files removes Sidedoor's application directory (/opt/sidedoor) and the systemd helper binary (/usr/local/bin/sidedoor-systemd-helper) if they exist.
 
 phase_remove_application_files() {
     phase "PHASE 7: Remove Application Files"
@@ -548,7 +551,8 @@ phase_remove_application_files() {
     fi
 }
 
-# ========== PHASE 8: CLEANUP REMAINING ARTIFACTS ==========
+# phase_cleanup_remaining_artifacts removes empty chroot home directories under /home/sftp; in dry-run mode it logs planned removals instead of deleting.
+# The operation is idempotent and silently no-ops if the sftp base directory does not exist or contains non-empty homes.
 
 phase_cleanup_remaining_artifacts() {
     phase "PHASE 8: Cleanup Remaining Artifacts"
@@ -573,7 +577,7 @@ phase_cleanup_remaining_artifacts() {
     fi
 }
 
-# ========== PHASE 9: REMOVE REPOSITORY CLONE ==========
+# phase_remove_repository_clone removes known Sidedoor repository clone directories from common locations, skipping removal when running from the local development path.
 
 phase_remove_repository_clone() {
     phase "PHASE 9: Remove Repository Clone"
@@ -602,7 +606,8 @@ phase_remove_repository_clone() {
     done
 }
 
-# ========== PHASE 10: VERIFICATION ==========
+# phase_verification verifies that no leftover Sidedoor components remain and logs warnings for any detected issues.
+# It checks for an enabled service, remaining systemd timers, dynamic n0x users, the certificates database and its directory, and the Sidedoor SSH config; it reports a summary count of issues found.
 
 phase_verification() {
     phase "PHASE 10: Verification"
@@ -658,7 +663,7 @@ phase_verification() {
     fi
 }
 
-# ========== SUMMARY ==========
+# show_summary prints a concise removal summary (services stopped, timers removed, users removed, mount points unmounted, files removed with human-readable total size) and logs completion.
 
 show_summary() {
     phase "Removal Summary"
@@ -676,7 +681,8 @@ show_summary() {
     log "Uninstall complete"
 }
 
-# ========== MAIN ==========
+# main orchestrates the Sidedoor uninstall: runs safety checks, executes phased cleanup steps (services, systemd units, dynamic users, mounts, DB, config, application files, repository clones, and verification), and prints a final summary.
+# main prompts for interactive confirmation unless DRY_RUN=true and respects dry-run mode to simulate actions without making changes.
 
 main() {
     # Initialize logging
