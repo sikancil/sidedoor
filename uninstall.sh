@@ -212,9 +212,11 @@ main() {
             error "Sudo is not available on this system"
             exit 1
         fi
-        if ! sudo -v &>/dev/null; then
+        # Use sudo -n for non-interactive check (works with curl pipes)
+        if ! sudo -n true &>/dev/null; then
             error "This script requires root privileges"
-            error "Sudo authentication failed"
+            error "Sudo authentication failed or passwordless sudo not configured"
+            error "Please ensure passwordless sudo is enabled for the current user"
             exit 1
         fi
         log "Elevating privileges with sudo..."
