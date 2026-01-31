@@ -167,6 +167,11 @@ export class RecoveryService {
 
 // Lazy singleton instance
 let _recoveryServiceInstance: RecoveryService | null = null;
+/**
+ * Get the shared RecoveryService singleton, creating and caching it on first use.
+ *
+ * @returns The cached `RecoveryService` instance
+ */
 export function getRecoveryService(): RecoveryService {
   if (!_recoveryServiceInstance) {
     _recoveryServiceInstance = new RecoveryService();

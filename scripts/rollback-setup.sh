@@ -36,7 +36,7 @@ YELLOW='\033[1;33m'
 GREEN='\033[0;32m'
 NC='\033[0m'
 
-# Help function
+# show_help displays the script's help text extracted from the rollback-setup.sh header and exits with status 0.
 show_help() {
     grep '^#' "$SCRIPT_DIR/rollback-setup.sh" | sed 's/^# //' | sed 's/^#//'
     exit 0
@@ -84,14 +84,17 @@ if [[ $EUID -ne 0 ]]; then
     exit 1
 fi
 
+# log prints a message prefixed with a green "[ROLLBACK]" tag to stdout.
 log() {
     echo -e "${GREEN}[ROLLBACK]${NC} $1"
 }
 
+# warn prints a yellow "[WARNING]"-prefixed message to stdout using the YELLOW/NC color variables and accepts a single message argument.
 warn() {
     echo -e "${YELLOW}[WARNING]${NC} $1"
 }
 
+# error prints an error message prefixed with a red "[ERROR]" tag.
 error() {
     echo -e "${RED}[ERROR]${NC} $1"
 }

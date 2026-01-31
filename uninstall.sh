@@ -62,24 +62,29 @@ BLUE='\033[0;34m'
 CYAN='\033[0;36m'
 NC='\033[0m'
 
-# ========== UTILITY FUNCTIONS ==========
+# log prints an informational message prefixed with a green `[UNINSTALL]` tag.
 
 log() {
     echo -e "${GREEN}[UNINSTALL]${NC} $1"
 }
 
+# warn prints a warning message prefixed with a yellow "[WARNING]" label to stdout.
 warn() {
     echo -e "${YELLOW}[WARNING]${NC} $1"
 }
 
+# error echoes the given message prefixed with a red `[ERROR]` label.
 error() {
     echo -e "${RED}[ERROR]${NC} $1"
 }
 
+# info prints an informational message prefixed with a cyan "[INFO]" tag.
 info() {
     echo -e "${CYAN}[INFO]${NC} $1"
 }
 
+# header prints a formatted, colored section header to stdout.
+# Takes one argument: the header text to display.
 header() {
     echo ""
     echo -e "${BLUE}===============================================================${NC}"
@@ -88,7 +93,7 @@ header() {
     echo ""
 }
 
-# ========== VALIDATION FUNCTIONS ==========
+# check_os verifies the host is Ubuntu and logs its VERSION_ID; if the OS cannot be determined or is not Ubuntu, it prints an error and exits with status 1.
 
 check_os() {
     if [[ ! -f /etc/os-release ]]; then
@@ -109,7 +114,8 @@ check_os() {
     log "Ubuntu version: $ubuntu_version"
 }
 
-# ========== INSTALLATION FUNCTIONS ==========
+# install_minimal_deps waits for APT locks (up to 60s), updates apt package lists, and installs Git and curl quietly.
+# It prints progress headers and messages, attempts to continue if the lock wait times out, and suppresses package manager output.
 
 install_minimal_deps() {
     header "Installing Minimal Dependencies"
@@ -141,6 +147,7 @@ install_minimal_deps() {
     log "Dependencies installed"
 }
 
+# clone_repo attempts to clone the configured repository and branch into the temporary clone directory, retrying up to three times and exiting with an error if all attempts fail.
 clone_repo() {
     header "Cloning Repository"
 
@@ -166,6 +173,7 @@ clone_repo() {
     exit 1
 }
 
+# delegate_to_uninstall delegates execution to the cloned repository's uninstall.sh, passes `--dry-run` when DRY_RUN is true, validates the script exists (removing the clone and exiting on missing), runs the script, logs success or failure, and returns the uninstall script's exit code.
 delegate_to_uninstall() {
     header "Delegating to Uninstall Script"
 
@@ -200,6 +208,7 @@ delegate_to_uninstall() {
     return $exit_code
 }
 
+# cleanup removes the temporary clone directory specified by CLONE_DIR_BASE if it exists.
 cleanup() {
     # Remove clone directory
     if [[ -n "$CLONE_DIR_BASE" ]] && [[ -d "$CLONE_DIR_BASE" ]]; then
@@ -208,7 +217,7 @@ cleanup() {
     fi
 }
 
-# ========== MAIN FUNCTION ==========
+# main displays the banner and active configuration, ensures root privileges (re-executes with sudo if needed while preserving DRY_RUN), registers cleanup on exit, runs OS validation, installs minimal dependencies, clones the repository, delegates to the repository's uninstall script, and exits with that script's exit code.
 
 main() {
     echo ""

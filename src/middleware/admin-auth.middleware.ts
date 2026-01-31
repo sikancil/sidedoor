@@ -57,16 +57,22 @@ export const optionalAdminAuth = new Elysia({ name: 'optional-admin-auth' }).der
 );
 
 /**
- * Check if request is from systemd timer
- * Checks X-Trigger header for 'systemd' value
+ * Detects whether the request was triggered by systemd.
+ *
+ * @param headers - The request headers to inspect
+ * @returns `true` if the `X-Trigger` header equals `"systemd"`, `false` otherwise
  */
 export function isSystemdTrigger(headers: Headers): boolean {
   return headers.get('x-trigger') === 'systemd';
 }
 
 /**
- * Check if request has admin auth
- * @returns true if authenticated, false otherwise
+ * Determines whether the incoming request is authenticated as an admin.
+ *
+ * Compares the Bearer token in the Authorization header to the CRON_SECRET environment variable or DEFAULT_CONFIG.cronSecret.
+ *
+ * @param request - The incoming HTTP request whose Authorization header will be checked for a Bearer token.
+ * @returns `true` if the Authorization header contains a Bearer token that exactly matches the cron secret, `false` otherwise.
  */
 export function hasAdminAuth(request: Request): boolean {
   const authHeader = request.headers.get('authorization');

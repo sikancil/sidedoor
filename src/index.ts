@@ -66,7 +66,14 @@ const app = new Elysia()
     },
   }));
 
-// Start server
+/**
+ * Bootstraps and starts the Sidedoor API server and performs necessary startup orchestration.
+ *
+ * Performs configuration loading (auto-recreating missing config), optional firewall synchronization,
+ * systemd log directory preparation, SSH chroot configuration for dynamic users, recovery of certificate timers,
+ * cleanup of orphaned resources, and system state validation before listening on the configured port.
+ * After startup, prints runtime metadata and a summary of public and admin endpoints.
+ */
 async function start() {
   // Load configuration (auto-recreates if missing)
   const configPath = process.env.CONFIG_PATH || DEFAULT_CONFIG.configPath;
@@ -137,8 +144,15 @@ async function start() {
 }
 
 /**
- * Automatic UFW synchronization at startup
- * Checks if UFW is active and ensures required ports are allowed
+ * Ensure the system UFW allows the configured SSH and API ports at startup.
+ *
+ * Checks whether UFW is installed and active; if active, verifies that the SSH and API ports
+ * from `config` are allowed and adds missing rules using `sudo ufw allow <port>/tcp`.
+ * Logs actions taken and summaries. If UFW is not installed or not active, the function logs a warning and returns.
+ * Any errors during detection or modification are caught and logged; the function does not throw.
+ *
+ * @param config - Application configuration containing `sshPort` and `port` to ensure in UFW
+ * @returns void
  */
 async function syncUfwIfNeeded(config: Config): Promise<void> {
   const { execSync } = require('node:child_process');

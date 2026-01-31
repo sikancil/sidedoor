@@ -17,10 +17,12 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m'
 
+# log prints a green-colored, script-prefixed message to stderr.
 log() {
     echo -e "${GREEN}[$(basename "$0")]${NC} $1" >&2
 }
 
+# error prints a red-formatted error message prefixed with the script name to stderr and exits with status 1.
 error() {
     echo -e "${RED}[$(basename "$0")] ERROR${NC} $1" >&2
     exit 1

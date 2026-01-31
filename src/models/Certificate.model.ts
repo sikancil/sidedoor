@@ -402,6 +402,13 @@ export class CertificateModel {
 
 // Lazy singleton instance
 let _certificateModelInstance: CertificateModel | null = null;
+/**
+ * Get the singleton CertificateModel instance.
+ *
+ * Creates and caches a CertificateModel on first call and returns the shared instance for subsequent calls.
+ *
+ * @returns The shared CertificateModel instance
+ */
 export function getCertificateModel(): CertificateModel {
   if (!_certificateModelInstance) {
     _certificateModelInstance = new CertificateModel();

@@ -7,7 +7,7 @@
 # State file location
 STATE_FILE="${STATE_FILE:-/var/lib/sidedoor/.setup-state}"
 
-# Initialize state file and directory
+# init_state ensures the directory containing STATE_FILE exists (creating it with mode 755 if missing) and creates STATE_FILE with mode 644.
 init_state() {
     local state_dir
     state_dir=$(dirname "$STATE_FILE")
@@ -20,7 +20,7 @@ init_state() {
 }
 
 # Binary state tracking (backward compatible)
-# Usage: set_state "bun_installed"
+# set_state sets a binary state by ensuring a single "key=true" entry for the given key in STATE_FILE (defaults to /var/lib/sidedoor/.setup-state).
 set_state() {
     local key=$1
     # Remove existing entry
@@ -29,14 +29,16 @@ set_state() {
 }
 
 # Check binary state (backward compatible)
-# Usage: get_state "bun_installed" # returns 0 if true
+# get_state checks whether the given key is set to `true` in the state file and exits with success if a matching line is found.
 get_state() {
     local key=$1
     grep -q "^${key}=true" "$STATE_FILE" 2>/dev/null
 }
 
 # Rich state with metadata
-# Usage: set_state_meta "bun_installed" "1.3.0" [timestamp]
+# set_state_meta adds or updates a key in STATE_FILE with a value and an ISO 8601 UTC timestamp.
+# If the optional timestamp is omitted, the current UTC time in the format YYYY-MM-DDTHH:MM:SSZ is used.
+# Existing entries for the key are removed before the new "key=value@timestamp" line is appended.
 set_state_meta() {
     local key=$1
     local value=$2
@@ -50,7 +52,7 @@ set_state_meta() {
 }
 
 # Get value from rich state
-# Usage: get_state_meta "bun_installed" # outputs: 1.3.0
+# get_state_meta outputs the stored value (the part before `@`) for KEY from STATE_FILE and prints nothing if the key is not present.
 get_state_meta() {
     local key=$1
     local entry
@@ -61,7 +63,7 @@ get_state_meta() {
 }
 
 # Get timestamp from rich state
-# Usage: get_state_time "bun_installed" # outputs: 2024-01-15T10:30:00Z
+# get_state_time prints the timestamp (the portion after `@`) of the first matching entry for the given key from STATE_FILE, or prints nothing if no entry is found.
 get_state_time() {
     local key=$1
     local entry
@@ -72,7 +74,7 @@ get_state_time() {
 }
 
 # Check if state value matches expected
-# Usage: check_state_value "bun_installed" "1.3.0"
+# check_state_value compares the stored rich-state value for a key to the expected value and exits with success when they match.
 check_state_value() {
     local key=$1
     local expected=$2
@@ -82,20 +84,21 @@ check_state_value() {
 }
 
 # Remove state entry
-# Usage: clear_state "bun_installed"
+# clear_state removes all entries matching "<key>=..." for the given key from STATE_FILE.
 clear_state() {
     local key=$1
     sed -i "/^${key}=/d" "$STATE_FILE" 2>/dev/null || true
 }
 
 # List all state keys
-# Usage: list_state_keys
+# list_state_keys outputs all unique keys from STATE_FILE, one per line, sorted.
 list_state_keys() {
     grep -oE '^[^=]+' "$STATE_FILE" 2>/dev/null | sort -u
 }
 
 # Export all state as JSON (for debugging)
-# Usage: export_state_json
+# export_state_json outputs a JSON object representing all rich state entries from STATE_FILE.
+# It reads STATE_FILE, skips commented/empty lines, and for entries of the form "key=value@timestamp" emits `"key": {"value": "<value>", "timestamp": "<timestamp>"}` to stdout.
 export_state_json() {
     echo "{"
     local first=true

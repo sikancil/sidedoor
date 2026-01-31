@@ -6,6 +6,13 @@ import { CERTIFICATE_STATUS, ACCESS_LOG_STATUS } from './constants';
 
 let db: Database | null = null;
 
+/**
+ * Provide the application's singleton SQLite Database instance, initializing it if necessary.
+ *
+ * This function lazily creates and caches a Database connected to the configured path, ensures the database directory exists, applies required SQLite pragmas, and prepares or migrates the schema before returning the instance.
+ *
+ * @returns The cached or newly created Database instance
+ */
 export function getDatabase(): Database {
   if (db) {
     return db;
@@ -28,6 +35,15 @@ export function getDatabase(): Database {
   return db;
 }
 
+/**
+ * Ensure the application's database schema exists and is migrated to the current version.
+ *
+ * Creates or updates the certificates, access_logs, and cleanup_logs tables (including required
+ * columns, foreign key constraints, and CHECK constraints), creates performance indexes, and
+ * conditionally runs the dynamic-user migration to add newer certificate columns when they are missing.
+ *
+ * @param database - The SQLite Database instance to initialize or migrate
+ */
 function initializeSchema(database: Database): void {
   // Check if we need to run migration
   const hasNewColumns = database
@@ -126,8 +142,12 @@ function initializeSchema(database: Database): void {
 }
 
 /**
- * Migrate database from static user model to dynamic user model
- * Adds new columns for systemd timers, forensic tracking, and bind mounts
+ * Apply schema migrations to convert the database from a static-user model to a dynamic-user model.
+ *
+ * Attempts to add columns used for bind mounts, systemd timer tracking, revocation/forensics, and cleanup flags to the `certificates` table,
+ * and ensures a unique index exists on `certificates(username)`. Existing columns or indexes are ignored to make the migration idempotent.
+ *
+ * @param database - The SQLite Database instance to migrate
  */
 function migrateToDynamicUsers(database: Database): void {
   console.log('Running database migration for dynamic users...');
@@ -171,6 +191,11 @@ function migrateToDynamicUsers(database: Database): void {
   console.log('Database migration complete');
 }
 
+/**
+ * Closes the cached database connection and clears the in-memory instance.
+ *
+ * After calling this, subsequent calls to getDatabase() will create a new Database.
+ */
 export function closeDatabase(): void {
   if (db) {
     db.close();
@@ -178,6 +203,11 @@ export function closeDatabase(): void {
   }
 }
 
+/**
+ * Drops the access_logs and certificates tables from the currently cached database and reinitializes the schema.
+ *
+ * If no database is initialized, this function does nothing.
+ */
 export function resetDatabase(): void {
   if (db) {
     db.exec('DROP TABLE IF EXISTS access_logs');

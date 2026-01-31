@@ -66,11 +66,15 @@ LOG_ENABLED=true
 LOG_FILE=""
 
 # Define fallback logging functions for bootstrap (before clone or for curl execution)
-# These will be used until we can source the full logging library
+# log prints an informational message prefixed with a green "[INSTALL]" tag.
 log() { echo -e "${GREEN}[INSTALL]${NC} $1"; }
+# warn prints MESSAGE prefixed with a yellow "[WARNING]" label to stdout.
 warn() { echo -e "${YELLOW}[WARNING]${NC} $1"; }
+# error prints the provided message prefixed with a red [ERROR] tag.
 error() { echo -e "${RED}[ERROR]${NC} $1"; }
+# info prints an informational message prefixed with [INFO] in cyan to stdout.
 info() { echo -e "${CYAN}[INFO]${NC} $1"; }
+# header prints a framed section header using the first argument as the title.
 header() {
     echo ""
     echo "==============================================================="
@@ -79,7 +83,7 @@ header() {
     echo ""
 }
 
-# ========== VALIDATION FUNCTIONS ==========
+# check_os verifies the host OS is Ubuntu by reading /etc/os-release and exits with status 1 if the file is missing or the OS is not Ubuntu; on success it logs the detected Ubuntu VERSION_ID.
 
 check_os() {
     if [[ ! -f /etc/os-release ]]; then
@@ -100,7 +104,7 @@ check_os() {
     log "Ubuntu version: $ubuntu_version"
 }
 
-# ========== INSTALLATION FUNCTIONS ==========
+# install_minimal_deps waits for APT locks to clear, updates package lists, and installs the minimal packages required by the bootstrap (git, curl, jq, unzip, ca-certificates).
 
 install_minimal_deps() {
     header "Installing Minimal Dependencies"
@@ -135,6 +139,7 @@ install_minimal_deps() {
     log "Dependencies installed"
 }
 
+# create_user_smart ensures the SERVICE_USER account exists and is a member of `sudo` and `www-data`, creating the user (regular `ubuntu` or a system user) and adding required groups as needed.
 create_user_smart() {
     header "Configuring Service User"
 
@@ -183,6 +188,8 @@ create_user_smart() {
     log "User $SERVICE_USER created with required groups"
 }
 
+# configure_git configures Git global name, email, and default branch for the service user.
+# It sets user.name to 'Sidedoor Installer', user.email to 'installer@sidedoor.local', and init.defaultBranch to 'main'; errors are ignored.
 configure_git() {
     header "Configuring Git"
 
@@ -196,6 +203,8 @@ configure_git() {
     log "Git configured"
 }
 
+# clone_repo clones REPO_URL at BRANCH into a temporary directory under CLONE_DIR_BASE and echoes the clone path to stdout.
+# Writes progress and errors to stderr, retries up to 3 times on failure, and exits with a non-zero status if all attempts fail.
 clone_repo() {
     local clone_dir="${CLONE_DIR_BASE}-$$"
     local clone_attempts=0
@@ -226,6 +235,7 @@ clone_repo() {
     exit 1
 }
 
+# delegate_to_setup delegates execution to the repository's setup script in the given clone directory, optionally performs SSH key migration from root to SERVICE_USER before running the setup, and returns the setup script's exit code.
 delegate_to_setup() {
     local clone_dir=$1
 
@@ -302,6 +312,8 @@ delegate_to_setup() {
     return $exit_code
 }
 
+# cleanup removes the temporary clone directory created during installation unless SKIP_SETUP is "true".
+# If CLONE_DIR is set and points to an existing directory, it is removed recursively; otherwise no action is taken.
 cleanup() {
     # Skip cleanup if we're in SKIP_SETUP mode (CLONE_DIR should be preserved)
     if [[ "$SKIP_SETUP" == "true" ]]; then
@@ -317,7 +329,8 @@ cleanup() {
     log "INFO" "Cleanup complete" "${BASH_LINENO:-0}"
 }
 
-# ========== MAIN FUNCTION ==========
+# main executes the bootstrap installer: it validates the OS, installs minimal dependencies, ensures the service user exists, configures git, clones the repository, and delegates execution to the repository's setup script; the function exits with the setup script's exit code.
+# It will re-execute itself with sudo if not running as root, sets a trap to clean up the temporary clone directory on exit (unless SKIP_SETUP=true), and initializes logging before and after cloning.
 
 main() {
     # Initialize logging first (before clone, so we use fallback functions)

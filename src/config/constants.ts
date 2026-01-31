@@ -15,17 +15,9 @@ export const USERNAME_TOTAL_LENGTH = 9; // n0x + 6 hex = 9 total
 const generateHexId = customAlphabet(USERNAME_ALPHABET, USERNAME_HEX_LENGTH);
 
 /**
- * Generate a unique username in format n0x###### (9 characters total)
- * Uses nanoid with custom alphabet for hex characters only
+ * Generate a username using the 'n0x' prefix followed by six hexadecimal characters.
  *
- * Format breakdown:
- * - n: Letter prefix (required by Linux - usernames cannot start with digits)
- * - 0x: Literal hex identifier for visual clarity
- * - ######: 6 hex characters (a-f, 0-9)
- *
- * Examples: n0x1a2b3c, n0x9f8e7d, n0xdead00
- *
- * @returns Username string (e.g., "n0x1a2b3c")
+ * @returns A username in the form `n0xXXXXXX` (nine characters total), where each `X` is a hexadecimal digit (`0-9`, `a-f`). 
  */
 export function generateUsername(): string {
   return USERNAME_PREFIX + generateHexId();

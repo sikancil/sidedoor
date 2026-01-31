@@ -50,7 +50,7 @@ fi
 
 # ========== LOG LEVEL FORMATTING ==========
 
-# Get log level color
+# _log_level_color returns the ANSI color code for the given log level (`INFO`, `WARN`, `ERROR`, `DEBUG`) or the no-color code for unknown levels.
 _log_level_color() {
     local level=$1
     case "$level" in
@@ -62,7 +62,7 @@ _log_level_color() {
     esac
 }
 
-# Format timestamp with milliseconds
+# _log_timestamp formats and prints a UTC timestamp (ISO 8601) including milliseconds when available; if LOG_TIMESTAMP is "false" it prints nothing.
 _log_timestamp() {
     if [[ "${LOG_TIMESTAMP:-true}" != "false" ]]; then
         # Try to get milliseconds, fallback to seconds
@@ -84,7 +84,7 @@ _log_timestamp() {
 # ========== CREDENTIAL MASKING ==========
 
 # Partial masking: show first 2 chars + middle masked + last 2 chars
-# Usage: mask_partial "password123" -> "pa******23"
+# mask_partial masks a string by preserving a short prefix and suffix and replacing the middle characters with asterisks.
 mask_partial() {
     local str=$1
     local len=${#str}
@@ -110,7 +110,7 @@ mask_partial() {
 }
 
 # Mask sensitive data in text
-# Usage: mask_sensitive "Token: abcd1234"
+# mask_sensitive replaces common credential and key patterns (authenticatorToken, cronSecret, Bearer tokens, SSH keys/paths, private_key_path, api_key/token, and common password patterns) in the provided text with masked placeholders.
 mask_sensitive() {
     local text="$1"
 
@@ -146,7 +146,7 @@ mask_sensitive() {
 }
 
 # Mask a specific value for logging
-# Usage: log_value "authenticatorToken" "$token_value"
+# log_value returns a masked value for known credential keys (authenticatorToken, cronSecret, token, api_key, secret, password) and echoes the original value unchanged for other keys.
 log_value() {
     local key=$1
     local value=$2
@@ -164,7 +164,11 @@ log_value() {
 # ========== LOG INITIALIZATION ==========
 
 # Initialize logging for a script
-# Usage: init_logging "script_name"
+# init_logging initializes logging for a script by creating the log directory, creating a timestamped per-script log file, opening file descriptor 3 for log output, and installing an EXIT trap to close logging.
+# It is idempotent (no-op if already initialized), sets LOG_SCRIPT_NAME, and records state via _LOG_INITIALIZED and _LOG_FD_OPEN.
+# If LOG_DIR cannot be created, it falls back to /tmp/sidedoor-logs; file logging can be disabled by setting NO_LOG_FILE=true.
+# The created log directory and file receive restrictive permissions when possible, and a header is written to the log file when file logging is available.
+# Usage: init_logging "script_name" — script_name is used to name the log file and appear in the log header.
 init_logging() {
     # Skip if already initialized (idempotent)
     [[ "$_LOG_INITIALIZED" == "true" ]] && return 0
@@ -218,7 +222,7 @@ init_logging() {
     trap close_logging EXIT
 }
 
-# Write log header with system information
+# _write_log_header writes a header to file descriptor 3 with the start timestamp, system information (hostname, OS, kernel, user, PID) and script information (name, path, arguments); no-op if the log file descriptor is not open.
 _write_log_header() {
     # Only write if fd 3 is confirmed open
     [[ "$_LOG_FD_OPEN" != "true" ]] && return 0
@@ -254,7 +258,8 @@ _write_log_header() {
 # ========== CORE LOGGING FUNCTIONS ==========
 
 # Internal: Safely write to fd 3, suppressing errors
-# Internal: Write to log file
+# _write_to_log writes a formatted log entry to the configured log file descriptor (fd 3) when file logging is enabled.
+# The entry format is "TIMESTAMP [LEVEL] [script:line] MESSAGE"; the function returns immediately if the log fd is not open.
 _write_to_log() {
     local level=$1
     local message=$2
@@ -272,7 +277,8 @@ _write_to_log() {
 }
 
 # Main logging function
-# Usage: log "LEVEL" "message" [line_number]
+# log logs a message at the given level to the console (if enabled) and to the file-based log while masking sensitive content.
+# Accepts a log level (e.g., INFO, WARN, ERROR, DEBUG — legacy lowercase names `info`, `warn`, `error`, `debug` are accepted and normalized), the message text, and an optional source line number used in the file log. Console output is colorized and controlled by LOG_ENABLED; the message written to the log file is passed through mask_sensitive before being recorded.
 log() {
     local level="${1:-INFO}"
     local message="${2:-}"
@@ -303,22 +309,22 @@ log() {
 
 # Convenience functions that match existing patterns
 
-# Info message
+# info logs an informational message to console and the log file, masking sensitive content and accepting an optional line number for context.
 info() {
     log "INFO" "$1" "${2:-0}"
 }
 
-# Warning message
+# warn logs a warning-level message, masking sensitive content and writing it to the console (if enabled) and to the file logger; accepts a message and an optional line number.
 warn() {
     log "WARN" "$1" "${2:-0}"
 }
 
-# Error message
+# error logs a message with ERROR level. First argument is the message to log; second optional argument is the line number to include in the log (defaults to 0).
 error() {
     log "ERROR" "$1" "${2:-0}"
 }
 
-# Debug message (only shown if DEBUG=true)
+# debug logs a debug-level message; it prints the message to the console when DEBUG=true and always writes a masked debug entry to the logfile (accepts message and optional line number).
 debug() {
     local message="${1:-}"
     local line="${2:-0}"
@@ -332,7 +338,9 @@ debug() {
     _write_to_log "DEBUG" "$masked_message" "$LOG_SCRIPT_NAME" "$line"
 }
 
-# Phase/header message
+# phase prints a visual phase/header block with the given message to the console and mirrors the same block to the log file on fd 3 when open.
+# message is the text displayed inside the header.
+# line is an optional line number (defaults to 0) maintained for caller consistency; it is not used by this function.
 phase() {
     local message=$1
     local line=${2:-0}
@@ -353,7 +361,7 @@ phase() {
     fi
 }
 
-# Header message (alias for phase)
+# header prints a prominent section header to the console and writes the same header to the log file.
 header() {
     phase "$1" "$2"
 }
@@ -361,7 +369,20 @@ header() {
 # ========== COMMAND LOGGING ==========
 
 # Log a command execution with output
-# Usage: log_command "description" "command" [args...]
+# log_command runs a command, logs a descriptive entry, captures and masks its output, and records the command's success or failure.
+#
+# Logs an informational message describing the action, logs the command itself at debug level,
+# executes the provided command with its arguments, masks sensitive data in both stdout and stderr,
+# and writes the masked output to the log file (via fd 3). If the output exceeds 50 lines, the logged
+# output is truncated to the first 50 lines and a debug message indicates the number of omitted lines.
+# On success the function logs a debug success message; on failure it logs an ERROR including the exit code.
+#
+# Parameters:
+#   $1 - human-readable description of the command being executed (used in log messages)
+#   $2... - command and its arguments to execute
+#
+# Returns:
+#   The exit code of the executed command.
 log_command() {
     local description=$1
     shift
@@ -407,7 +428,7 @@ log_command() {
 
 # ========== LOG CLOSURE ==========
 
-# Close logging and write summary
+# close_logging closes the log file descriptor (fd 3), writes an end-of-log summary to the log file, resets internal state, and prints the log file path to the console if the log file exists.
 close_logging() {
     # Skip if fd 3 was never opened
     [[ "$_LOG_FD_OPEN" != "true" ]] && return 0

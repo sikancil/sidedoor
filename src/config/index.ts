@@ -31,6 +31,13 @@ export interface Config {
 
 let config: Config | null = null;
 
+/**
+ * Load application configuration from the given file and merge it with default values.
+ *
+ * @param configPath - Filesystem path to the configuration JSON. Defaults to DEFAULT_CONFIG.configPath.
+ * @returns The resolved Config object whose fields are populated from the user config file or defaults.
+ * @throws Error if `port` or `sshPort` are not in the range 1–65535, or if a provided `authenticatorToken` is shorter than 32 characters.
+ */
 export async function loadConfig(configPath: string = DEFAULT_CONFIG.configPath): Promise<Config> {
   if (config) {
     return config;
@@ -108,10 +115,21 @@ export async function loadConfig(configPath: string = DEFAULT_CONFIG.configPath)
   }
 }
 
+/**
+ * Creates a 32-character random token suitable for use as an authenticator or secret.
+ *
+ * @returns A 32-character base64-encoded string generated from cryptographically secure random bytes.
+ */
 function generateDefaultToken(): string {
   return randomBytes(32).toString('base64').slice(0, 32);
 }
 
+/**
+ * Retrieve the loaded application configuration.
+ *
+ * @returns The currently loaded `Config` object.
+ * @throws If the configuration has not been loaded via `loadConfig()`.
+ */
 export function getConfig(): Config {
   if (!config) {
     throw new Error('Config not loaded. Call loadConfig() first.');
@@ -119,14 +137,24 @@ export function getConfig(): Config {
   return config;
 }
 
+/**
+ * Reloads the application configuration by clearing the in-memory cache and loading from the specified file.
+ *
+ * @param configPath - Optional path to a configuration file; if omitted, the module's default config path is used
+ * @returns The loaded Config object
+ */
 export async function reloadConfig(configPath?: string): Promise<Config> {
   config = null;
   return loadConfig(configPath ?? DEFAULT_CONFIG.configPath);
 }
 
 /**
- * Auto-recreate config if missing with fallback to defaults
- * This is useful for production deployments where config may not exist yet
+ * Ensure a configuration file exists by creating a default one when missing and return the loaded configuration.
+ *
+ * If the file at `configPath` does not exist, a default config will be written to that path before loading.
+ *
+ * @param configPath - Path to the configuration file; defaults to DEFAULT_CONFIG.configPath
+ * @returns The loaded Config object
  */
 export async function ensureConfig(
   configPath: string = DEFAULT_CONFIG.configPath
@@ -144,9 +172,15 @@ export async function ensureConfig(
 }
 
 /**
- * Create default config file with secure tokens
- * In production, generates secure random tokens
- * In development, uses predictable defaults
+ * Create and write a default configuration file at the given path.
+ *
+ * Generates a configuration object (including ports, paths, defaults, and tokens),
+ * ensures the target directory exists, and writes the JSON config to disk.
+ * If the path contains "/etc/sidedoor/" the function treats the environment as
+ * production and generates secure random tokens for `authenticatorToken` and
+ * `cronSecret`; otherwise it uses predictable development placeholders.
+ *
+ * @param configPath - Filesystem path where the config file will be created
  */
 async function createDefaultConfig(configPath: string): Promise<void> {
   const isProduction = configPath.includes('/etc/sidedoor/');
