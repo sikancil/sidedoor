@@ -189,25 +189,16 @@ init_logging() {
     # Set restrictive permissions
     chmod 700 "$LOG_DIR" 2>/dev/null || true
 
-    # Check if we can write to the log file location BEFORE opening fd 3
-    # This prevents "Bad file descriptor" errors later
+    # Open log file for writing (fd 3) with full error suppression
+    # Use subshell to suppress all errors from exec
     if [[ "${NO_LOG_FILE:-}" != "true" ]]; then
-        # Try to touch the file to verify writability
-        if ! touch "$LOG_FILE" 2>/dev/null; then
-            # Cannot write to log file, disable file logging
-            NO_LOG_FILE="true"
-            LOG_FILE=""
-        fi
-    fi
-
-    # Open log file for writing (fd 3)
-    if [[ "${NO_LOG_FILE:-}" != "true" ]]; then
-        exec 3>"$LOG_FILE" 2>/dev/null || {
+        if (exec 3>"$LOG_FILE") 2>/dev/null; then
+            chmod 600 "$LOG_FILE" 2>/dev/null || true
+        else
             # Failed to open fd 3, disable file logging
             NO_LOG_FILE="true"
             LOG_FILE=""
-        }
-        chmod 600 "$LOG_FILE" 2>/dev/null || true
+        fi
     fi
 
     # Mark as initialized before writing header
