@@ -558,8 +558,14 @@ _ssh_disable_root_login() {
 
     local ssh_config="/etc/ssh/sshd_config.d/sidedoor-root-disable.conf"
 
+    # Use sudo if not running as root for creating config in /etc
+    local sudo_cmd=""
+    if [[ $EUID -ne 0 ]]; then
+        sudo_cmd="sudo"
+    fi
+
     # Create config to disable root login
-    cat > "$ssh_config" << EOF
+    $sudo_cmd cat > "$ssh_config" << EOF
 # Security: Disable root SSH login after SSH migration
 # Root SSH keys have been migrated to $target_user
 # Use '$target_user@<hostname>' for SSH access instead
@@ -570,12 +576,12 @@ EOF
     # Validate SSH configuration
     if sshd -t 2>/dev/null; then
         # Reload SSH service
-        systemctl reload ssh 2>/dev/null || systemctl restart ssh
+        $sudo_cmd systemctl reload ssh 2>/dev/null || $sudo_cmd systemctl restart ssh
         log "✓ Root SSH login disabled"
         log "  Use '$target_user@<hostname>' for SSH access"
     else
         error "SSH configuration validation failed"
-        rm -f "$ssh_config"
+        $sudo_cmd rm -f "$ssh_config"
         return 1
     fi
 
@@ -589,8 +595,14 @@ _ssh_enable_root_login() {
     local ssh_config="/etc/ssh/sshd_config.d/sidedoor-root-disable.conf"
 
     if [[ -f "$ssh_config" ]]; then
-        rm -f "$ssh_config"
-        systemctl reload ssh 2>/dev/null || systemctl restart ssh
+        # Use sudo if not running as root
+        if [[ $EUID -ne 0 ]]; then
+            sudo rm -f "$ssh_config"
+            sudo systemctl reload ssh 2>/dev/null || sudo systemctl restart ssh
+        else
+            rm -f "$ssh_config"
+            systemctl reload ssh 2>/dev/null || systemctl restart ssh
+        fi
         log "✓ Root SSH login re-enabled"
     else
         log "Root SSH login is already enabled"
