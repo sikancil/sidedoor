@@ -12,68 +12,29 @@ export class SystemdService {
   /**
    * Create systemd timer and service for certificate cleanup
    * Timer fires once at expiration time and triggers cleanup endpoint
+   * Uses privileged helper script for secure systemd operations
    */
   async createCleanupTimer(config: SystemdTimerConfig): Promise<void> {
     const { username, expiresAt, cleanupEndpoint } = config;
-    const timerName = `sidedoor-${username}`;
-    const serviceName = `sidedoor-cleanup-${username}`;
     const cronSecret = process.env.CRON_SECRET || 'default-secret';
 
-    // Get API port from config (instead of hardcoding 3000)
+    // Get API port from config
     const appConfig = getConfig();
     const apiUrl = `http://localhost:${appConfig.port}${cleanupEndpoint}`;
 
     // Format date for systemd OnCalendar (RFC 3339 format)
     const calendarTime = expiresAt.toISOString();
 
-    // Generate timer unit file
-    const timerContent = `[Unit]
-Description=Sidedoor Certificate Cleanup for ${username}
-Requires=${serviceName}.service
+    // Call privileged helper script via sudo
+    const args = [
+      'create-timer',
+      username,
+      calendarTime,
+      cronSecret,
+      apiUrl
+    ];
 
-[Timer]
-OnCalendar=${calendarTime}
-AccuracySec=1ms
-Unit=${serviceName}.service
-
-[Install]
-WantedBy=timers.target
-`;
-
-    // Generate service unit file
-    const serviceContent = `[Unit]
-Description=Sidedoor Certificate Cleanup for ${username}
-After=network.target
-
-[Service]
-Type=oneshot
-User=root
-ExecStart=/usr/bin/curl -s -X POST ${apiUrl} \\
-  -H "Authorization: Bearer ${cronSecret}" \\
-  -H "X-Certificate-Id: ${username}" \\
-  -H "X-Trigger: systemd"
-StandardOutput=append:/var/log/sidedoor/cleanup.log
-StandardError=append:/var/log/sidedoor/cleanup-errors.log
-Restart=on-failure
-RestartSec=30s
-
-# Auto-delete after execution
-ExecStartPost=/bin/systemctl disable ${timerName}.timer
-ExecStartPost=/bin/rm -f /etc/systemd/system/${timerName}.{timer,service}
-ExecStartPost=/bin/systemctl daemon-reload
-`;
-
-    // Ensure systemd directory exists
-    await fs.mkdir('/etc/systemd/system', { recursive: true });
-
-    // Write systemd files
-    await fs.writeFile(`/etc/systemd/system/${timerName}.timer`, timerContent);
-    await fs.writeFile(`/etc/systemd/system/${serviceName}.service`, serviceContent);
-
-    // Reload systemd and start timer
-    await this.exec('systemctl daemon-reload');
-    await this.exec(`systemctl start ${timerName}.timer`);
-    await this.exec(`systemctl enable ${timerName}.timer`);
+    await this.execHelper(args);
 
     console.log(`Created systemd timer for ${username}: expires at ${calendarTime}`);
   }
@@ -82,19 +43,9 @@ ExecStartPost=/bin/systemctl daemon-reload
    * Delete systemd timer and service
    */
   async deleteCleanupTimer(username: string): Promise<void> {
-    const timerName = `sidedoor-${username}`;
-    const serviceName = `sidedoor-cleanup-${username}`;
-
-    // Stop and disable timer
-    await this.exec(`systemctl stop ${timerName}.timer`).catch(() => {});
-    await this.exec(`systemctl disable ${timerName}.timer`).catch(() => {});
-
-    // Remove files
-    await fs.unlink(`/etc/systemd/system/${timerName}.timer`).catch(() => {});
-    await fs.unlink(`/etc/systemd/system/${serviceName}.service`).catch(() => {});
-
-    // Reload systemd
-    await this.exec('systemctl daemon-reload');
+    // Call privileged helper script via sudo
+    const args = ['delete-timer', username];
+    await this.execHelper(args);
 
     console.log(`Deleted systemd timer for ${username}`);
   }
@@ -201,10 +152,32 @@ ExecStartPost=/bin/systemctl daemon-reload
   }
 
   /**
+   * Execute privileged helper script via sudo
+   * Routes systemd operations through secure wrapper
+   */
+  private async execHelper(args: string[]): Promise<string> {
+    const helperPath = '/usr/local/sbin/sidedoor-systemd-helper';
+    const command = `sudo ${helperPath} ${args.join(' ')}`;
+
+    const proc = Bun.spawn(['/bin/sh', '-c', command], { stdout: 'pipe', stderr: 'pipe' });
+    const exitCode = await proc.exited;
+    const stdout = await new Response(proc.stdout).text();
+    const stderr = await new Response(proc.stderr).text();
+
+    if (exitCode !== 0) {
+      throw new Error(`Helper script failed: ${command}\n${stderr}`);
+    }
+
+    return stdout;
+  }
+
+  /**
    * Execute shell command
    */
   private async exec(command: string): Promise<string> {
-    const proc = Bun.spawn(command, { shell: true, stdout: 'pipe', stderr: 'pipe' });
+    // Split command into array for Bun.spawn
+    const args = ['/bin/sh', '-c', command];
+    const proc = Bun.spawn(args, { stdout: 'pipe', stderr: 'pipe' });
     const exitCode = await proc.exited;
     const stdout = await new Response(proc.stdout).text();
     const stderr = await new Response(proc.stderr).text();

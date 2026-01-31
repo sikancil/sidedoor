@@ -308,6 +308,21 @@ EOF
 
 # ========== SUDOERS CONFIGURATION ==========
 
+# Install systemd helper script
+install_systemd_helper() {
+    local helper_path="/usr/local/sbin/sidedoor-systemd-helper"
+    local helper_source="$PROJECT_ROOT/scripts/systemd-helper.sh"
+
+    if [[ -f "$helper_source" ]]; then
+        cp "$helper_source" "$helper_path"
+        chmod 755 "$helper_path"
+        log "Installed systemd helper script to $helper_path"
+    else
+        error "Helper script not found at $helper_source"
+        exit 1
+    fi
+}
+
 configure_sudoers() {
     phase "PHASE 5: Setup Sudoers"
 
@@ -316,6 +331,11 @@ configure_sudoers() {
     # Smart check: if configured and valid, skip
     if [[ -f "$sudoers_file" ]] && validate_sudoers "$sudoers_file"; then
         log "Sudoers configuration exists and valid"
+        # Check if systemd helper is installed, if not, add it
+        if [[ ! -f "/usr/local/sbin/sidedoor-systemd-helper" ]]; then
+            log "Installing systemd helper script..."
+            install_systemd_helper
+        fi
         return 0
     fi
 
@@ -332,14 +352,17 @@ $SERVICE_USER ALL=(ALL) NOPASSWD: /usr/sbin/usermod
 $SERVICE_USER ALL=(ALL) NOPASSWD: /usr/bin/chage
 $SERVICE_USER ALL=(ALL) NOPASSWD: /bin/mkdir, /bin/chown, /bin/chmod, /bin/rm, /bin/rm -rf
 $SERVICE_USER ALL=(ALL) NOPASSWD: /usr/sbin/sshd, /usr/sbin/sshd -t
-$SERVICE_USER ALL=(ALL) NOPASSWD: /bin/systemctl daemon-reload, /bin/systemctl start, /bin/systemctl stop, /bin/systemctl enable, /bin/systemctl disable, /bin/systemctl restart
+$SERVICE_USER ALL=(ALL) NOPASSWD: /usr/bin/systemctl daemon-reload, /bin/systemctl start, /bin/systemctl stop, /bin/systemctl enable, /bin/systemctl disable, /bin/systemctl restart
 $SERVICE_USER ALL=(ALL) NOPASSWD: /usr/bin/mount, /usr/bin/umount, /bin/mount -l
-$SERVICE_USER ALL=(ALL) NOPASSWD: /usr/bin/pkill, /usr/bin/killall
+$SERVICE_USER ALL=(ALL) NOPASSWD: /usr/local/sbin/sidedoor-systemd-helper
 EOF
     fi
 
     # Set correct permissions
     chmod 0440 "$sudoers_file"
+
+    # Install systemd helper script
+    install_systemd_helper
 
     # Validate sudoers
     if validate_sudoers "$sudoers_file"; then
