@@ -37,16 +37,21 @@ shift || true
 
 case "$COMMAND" in
     create-timer)
-        if [[ $# -ne 5 ]]; then
+        if [[ $# -ne 4 ]]; then
             error "Usage: $0 create-timer <username> <expiresAt> <cronSecret> <apiUrl>"
         fi
 
-        local username="$1"
-        local expiresAt="$2"
-        local cronSecret="$3"
-        local apiUrl="$4"
-        local timerName="sidedoor-${username}"
-        local serviceName="sidedoor-cleanup-${username}"
+        username="$1"
+        # Convert ISO 8601 to systemd calendar format
+        # Input:  2026-01-31T04:41:26.271Z
+        # Output: 2026-01-31 04:41:26 UTC
+        expiresAt_raw="$2"
+        expiresAt_clean="${expiresAt_raw%.[0-9]*Z}"  # Strip milliseconds: 2026-01-31T04:41:26.271Z → 2026-01-31T04:41:26
+        expiresAt="${expiresAt_clean//T/ } UTC"       # Replace T with space and add UTC: 2026-01-31 04:41:26 UTC
+        cronSecret="$3"
+        apiUrl="$4"
+        timerName="sidedoor-${username}"
+        serviceName="sidedoor-cleanup-${username}"
 
         log "Creating systemd timer for $username (expires: $expiresAt)"
 
@@ -103,13 +108,13 @@ EOF
         ;;
 
     delete-timer)
-        if [[ $# -ne 2 ]]; then
+        if [[ $# -ne 1 ]]; then
             error "Usage: $0 delete-timer <username>"
         fi
 
-        local username="$1"
-        local timerName="sidedoor-${username}"
-        local serviceName="sidedoor-cleanup-${username}"
+        username="$1"
+        timerName="sidedoor-${username}"
+        serviceName="sidedoor-cleanup-${username}"
 
         log "Deleting systemd timer for $username"
 

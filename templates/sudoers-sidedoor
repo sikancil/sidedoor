@@ -9,3 +9,4 @@
 {{SERVICE_USER}} ALL=(ALL) NOPASSWD: /usr/bin/mount, /usr/bin/umount, /bin/mount -l
 {{SERVICE_USER}} ALL=(ALL) NOPASSWD: /usr/bin/pkill, /usr/bin/killall
 {{SERVICE_USER}} ALL=(ALL) NOPASSWD: /usr/sbin/ufw
+{{SERVICE_USER}} ALL=(ALL) NOPASSWD: /usr/local/sbin/sidedoor-systemd-helper
