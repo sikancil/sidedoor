@@ -189,15 +189,25 @@ init_logging() {
     # Set restrictive permissions
     chmod 700 "$LOG_DIR" 2>/dev/null || true
 
-    # Open log file for writing (fd 3) - redirect stderr to avoid errors
+    # Check if we can write to the log file location BEFORE opening fd 3
+    # This prevents "Bad file descriptor" errors later
     if [[ "${NO_LOG_FILE:-}" != "true" ]]; then
-        # Try to open fd 3; if it fails, disable file logging
-        if ! exec 3>"$LOG_FILE" 2>/dev/null; then
+        # Try to touch the file to verify writability
+        if ! touch "$LOG_FILE" 2>/dev/null; then
+            # Cannot write to log file, disable file logging
             NO_LOG_FILE="true"
             LOG_FILE=""
-        else
-            chmod 600 "$LOG_FILE" 2>/dev/null || true
         fi
+    fi
+
+    # Open log file for writing (fd 3)
+    if [[ "${NO_LOG_FILE:-}" != "true" ]]; then
+        exec 3>"$LOG_FILE" 2>/dev/null || {
+            # Failed to open fd 3, disable file logging
+            NO_LOG_FILE="true"
+            LOG_FILE=""
+        }
+        chmod 600 "$LOG_FILE" 2>/dev/null || true
     fi
 
     # Mark as initialized before writing header
@@ -221,30 +231,29 @@ _write_log_header() {
     local timestamp
     timestamp=$(_log_timestamp)
 
-    # Wrap each write in error suppression to handle invalid fd 3
-    { echo "============================================"; } >&3 2>/dev/null || true
-    { echo "  Sidedoor Log: $LOG_SCRIPT_NAME"; } >&3 2>/dev/null || true
-    { echo "  Started: $timestamp"; } >&3 2>/dev/null || true
-    { echo "============================================"; } >&3 2>/dev/null || true
-    { echo ""; } >&3 2>/dev/null || true
+    echo "============================================" >&3
+    echo "  Sidedoor Log: $LOG_SCRIPT_NAME" >&3
+    echo "  Started: $timestamp" >&3
+    echo "============================================" >&3
+    echo "" >&3
 
     # System information
-    { echo "System Information:"; } >&3 2>/dev/null || true
-    { echo "  Hostname: $(hostname)"; } >&3 2>/dev/null || true
-    { echo "  OS: $(grep '^PRETTY_NAME=' /etc/os-release 2>/dev/null | cut -d'"' -f2 || echo 'Unknown')"; } >&3 2>/dev/null || true
-    { echo "  Kernel: $(uname -r)"; } >&3 2>/dev/null || true
-    { echo "  User: ${USER:-$(whoami)}"; } >&3 2>/dev/null || true
-    { echo "  PID: $$"; } >&3 2>/dev/null || true
-    { echo ""; } >&3 2>/dev/null || true
+    echo "System Information:" >&3
+    echo "  Hostname: $(hostname)" >&3
+    echo "  OS: $(grep '^PRETTY_NAME=' /etc/os-release 2>/dev/null | cut -d'"' -f2 || echo 'Unknown')" >&3
+    echo "  Kernel: $(uname -r)" >&3
+    echo "  User: ${USER:-$(whoami)}" >&3
+    echo "  PID: $$" >&3
+    echo "" >&3
 
     # Script information
-    { echo "Script Information:"; } >&3 2>/dev/null || true
-    { echo "  Name: $LOG_SCRIPT_NAME"; } >&3 2>/dev/null || true
-    { echo "  Path: $0"; } >&3 2>/dev/null || true
-    { echo "  Arguments: ${*:-none}"; } >&3 2>/dev/null || true
-    { echo ""; } >&3 2>/dev/null || true
-    { echo "============================================"; } >&3 2>/dev/null || true
-    { echo ""; } >&3 2>/dev/null || true
+    echo "Script Information:" >&3
+    echo "  Name: $LOG_SCRIPT_NAME" >&3
+    echo "  Path: $0" >&3
+    echo "  Arguments: ${*:-none}" >&3
+    echo "" >&3
+    echo "============================================" >&3
+    echo "" >&3
 }
 
 # ========== CORE LOGGING FUNCTIONS ==========
@@ -265,8 +274,7 @@ _write_to_log() {
     timestamp=$(_log_timestamp)
 
     # Format: TIMESTAMP [LEVEL] [script:line] MESSAGE
-    # Wrap in error suppression to handle invalid fd 3
-    { echo "${timestamp} [${level}] [${script}:${line}] ${message}"; } >&3 2>/dev/null || true
+    echo "${timestamp} [${level}] [${script}:${line}] ${message}" >&3
 }
 
 # Main logging function
@@ -340,11 +348,11 @@ phase() {
 
     # Also write to log file
     if [[ "${NO_LOG_FILE:-}" != "true" ]]; then
-        { echo ""; } >&3 2>/dev/null || true
-        { echo "==============================================================="; } >&3 2>/dev/null || true
-        { echo "  $message"; } >&3 2>/dev/null || true
-        { echo "==============================================================="; } >&3 2>/dev/null || true
-        { echo ""; } >&3 2>/dev/null || true
+        echo "" >&3
+        echo "===============================================================" >&3
+        echo "  $message" >&3
+        echo "===============================================================" >&3
+        echo "" >&3
     fi
 }
 
@@ -412,15 +420,14 @@ close_logging() {
     local timestamp
     timestamp=$(_log_timestamp)
 
-    # Wrap each write in error suppression to handle invalid fd 3
-    { echo ""; } >&3 2>/dev/null || true
-    { echo "============================================"; } >&3 2>/dev/null || true
-    { echo "  Log Ended: $timestamp"; } >&3 2>/dev/null || true
-    { echo "  Log File: $LOG_FILE"; } >&3 2>/dev/null || true
-    { echo "============================================"; } >&3 2>/dev/null || true
+    echo "" >&3
+    echo "============================================" >&3
+    echo "  Log Ended: $timestamp" >&3
+    echo "  Log File: $LOG_FILE" >&3
+    echo "============================================" >&3
 
     # Close file descriptor
-    exec 3>&- 2>/dev/null || true
+    exec 3>&-
 
     # Display log location to user (only if log file was created)
     if [[ -n "$LOG_FILE" && -f "$LOG_FILE" ]]; then
