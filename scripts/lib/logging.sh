@@ -26,6 +26,7 @@ LOG_FILE=""
 LOG_FD=3  # File descriptor for log output
 LOG_SCRIPT_NAME=""
 LOG_ENABLED=true
+_LOG_INITIALIZED=false  # Prevent double initialization
 
 # Colors (reset if not a terminal)
 if [[ -t 1 ]]; then
@@ -164,6 +165,9 @@ log_value() {
 # Initialize logging for a script
 # Usage: init_logging "script_name"
 init_logging() {
+    # Skip if already initialized (idempotent)
+    [[ "$_LOG_INITIALIZED" == "true" ]] && return 0
+
     local script_name=$1
     LOG_SCRIPT_NAME="$script_name"
 
@@ -187,14 +191,23 @@ init_logging() {
 
     # Open log file for writing (fd 3)
     if [[ "${NO_LOG_FILE:-}" != "true" ]]; then
-        exec 3>"$LOG_FILE"
-        chmod 600 "$LOG_FILE"
+        exec 3>"$LOG_FILE" 2>/dev/null || {
+            # Failed to open log file, disable file logging
+            NO_LOG_FILE="true"
+            LOG_FILE=""
+        }
+        chmod 600 "$LOG_FILE" 2>/dev/null || true
     fi
 
-    # Write log header
-    _write_log_header
+    # Mark as initialized before writing header
+    _LOG_INITIALIZED=true
 
-    # Set trap to close logging on exit
+    # Write log header (only if fd 3 is valid)
+    if [[ "${NO_LOG_FILE:-}" != "true" ]]; then
+        _write_log_header 2>/dev/null || true
+    fi
+
+    # Set trap to close logging on exit (only once)
     trap close_logging EXIT
 }
 
@@ -204,32 +217,37 @@ _write_log_header() {
         return
     fi
 
+    # Check if fd 3 is valid before writing
+    if ! : >&3 2>/dev/null; then
+        return
+    fi
+
     local timestamp
     timestamp=$(_log_timestamp)
 
-    echo "============================================" >&3
-    echo "  Sidedoor Log: $LOG_SCRIPT_NAME" >&3
-    echo "  Started: $timestamp" >&3
-    echo "============================================" >&3
-    echo "" >&3
+    echo "============================================" >&3 2>/dev/null || true
+    echo "  Sidedoor Log: $LOG_SCRIPT_NAME" >&3 2>/dev/null || true
+    echo "  Started: $timestamp" >&3 2>/dev/null || true
+    echo "============================================" >&3 2>/dev/null || true
+    echo "" >&3 2>/dev/null || true
 
     # System information
-    echo "System Information:" >&3
-    echo "  Hostname: $(hostname)" >&3
-    echo "  OS: $(grep '^PRETTY_NAME=' /etc/os-release 2>/dev/null | cut -d'"' -f2 || echo 'Unknown')" >&3
-    echo "  Kernel: $(uname -r)" >&3
-    echo "  User: ${USER:-$(whoami)}" >&3
-    echo "  PID: $$" >&3
-    echo "" >&3
+    echo "System Information:" >&3 2>/dev/null || true
+    echo "  Hostname: $(hostname)" >&3 2>/dev/null || true
+    echo "  OS: $(grep '^PRETTY_NAME=' /etc/os-release 2>/dev/null | cut -d'"' -f2 || echo 'Unknown')" >&3 2>/dev/null || true
+    echo "  Kernel: $(uname -r)" >&3 2>/dev/null || true
+    echo "  User: ${USER:-$(whoami)}" >&3 2>/dev/null || true
+    echo "  PID: $$" >&3 2>/dev/null || true
+    echo "" >&3 2>/dev/null || true
 
     # Script information
-    echo "Script Information:" >&3
-    echo "  Name: $LOG_SCRIPT_NAME" >&3
-    echo "  Path: $0" >&3
-    echo "  Arguments: ${*:-none}" >&3
-    echo "" >&3
-    echo "============================================" >&3
-    echo "" >&3
+    echo "Script Information:" >&3 2>/dev/null || true
+    echo "  Name: $LOG_SCRIPT_NAME" >&3 2>/dev/null || true
+    echo "  Path: $0" >&3 2>/dev/null || true
+    echo "  Arguments: ${*:-none}" >&3 2>/dev/null || true
+    echo "" >&3 2>/dev/null || true
+    echo "============================================" >&3 2>/dev/null || true
+    echo "" >&3 2>/dev/null || true
 }
 
 # ========== CORE LOGGING FUNCTIONS ==========
@@ -245,11 +263,16 @@ _write_to_log() {
         return
     fi
 
+    # Check if fd 3 is valid before writing
+    if ! : >&3 2>/dev/null; then
+        return
+    fi
+
     local timestamp
     timestamp=$(_log_timestamp)
 
     # Format: TIMESTAMP [LEVEL] [script:line] MESSAGE
-    echo "${timestamp} [${level}] [${script}:${line}] ${message}" >&3
+    echo "${timestamp} [${level}] [${script}:${line}] ${message}" >&3 2>/dev/null || true
 }
 
 # Main logging function
@@ -322,12 +345,12 @@ phase() {
     echo ""
 
     # Also write to log file
-    if [[ "${NO_LOG_FILE:-}" != "true" ]]; then
-        echo "" >&3
-        echo "===============================================================" >&3
-        echo "  $message" >&3
-        echo "===============================================================" >&3
-        echo "" >&3
+    if [[ "${NO_LOG_FILE:-}" != "true" ]] && : >&3 2>/dev/null; then
+        echo "" >&3 2>/dev/null || true
+        echo "===============================================================" >&3 2>/dev/null || true
+        echo "  $message" >&3 2>/dev/null || true
+        echo "===============================================================" >&3 2>/dev/null || true
+        echo "" >&3 2>/dev/null || true
     fi
 }
 
@@ -387,25 +410,33 @@ log_command() {
 
 # Close logging and write summary
 close_logging() {
+    # Skip if file logging was disabled or fd 3 is not valid
     if [[ "${NO_LOG_FILE:-}" == "true" ]]; then
+        return
+    fi
+
+    # Check if fd 3 is open and valid before writing
+    if ! : >&3 2>/dev/null; then
         return
     fi
 
     local timestamp
     timestamp=$(_log_timestamp)
 
-    echo "" >&3
-    echo "============================================" >&3
-    echo "  Log Ended: $timestamp" >&3
-    echo "  Log File: $LOG_FILE" >&3
-    echo "============================================" >&3
+    echo "" >&3 2>/dev/null || true
+    echo "============================================" >&3 2>/dev/null || true
+    echo "  Log Ended: $timestamp" >&3 2>/dev/null || true
+    echo "  Log File: $LOG_FILE" >&3 2>/dev/null || true
+    echo "============================================" >&3 2>/dev/null || true
 
     # Close file descriptor
-    exec 3>&-
+    exec 3>&- 2>/dev/null || true
 
-    # Display log location to user
-    echo ""
-    echo -e "${CYAN}[LOG]${NC} Log saved to: $LOG_FILE"
+    # Display log location to user (only if log file was created)
+    if [[ -n "$LOG_FILE" && -f "$LOG_FILE" ]]; then
+        echo ""
+        echo -e "${CYAN}[LOG]${NC} Log saved to: $LOG_FILE"
+    fi
 }
 
 # Export functions for use in other scripts
