@@ -15,10 +15,12 @@
 #   - Dynamic n0x* certificate users
 #   - SQLite database at /var/lib/sidedoor/certificates.db
 #   - Configuration files at /etc/sidedoor/
+#   - SSH config at /etc/ssh/sshd_config.d/sidedoor.conf
 #   - Application files at /opt/sidedoor/
 #   - State files (.setup-state, .ssh-migration-state)
 #   - Cloned repository (on remote systems only)
 #   - Chroot bind mounts (NOT source directories)
+#   - SFTP base directory /home/sftp/ (if empty)
 #
 # What gets PRESERVED:
 #   - Service users (ubuntu, SERVICE_USER)
@@ -69,10 +71,12 @@ What gets REMOVED:
   - Dynamic n0x* certificate users (e.g., n0x1a2b3c)
   - SQLite certificate database
   - Configuration files
+  - SSH config at /etc/ssh/sshd_config.d/sidedoor.conf
   - Application files at /opt/sidedoor/
-  - State files
+  - State files (.setup-state, .ssh-migration-state)
   - Cloned repository (remote only)
   - Chroot bind mounts (NOT source directories)
+  - SFTP base directory /home/sftp/ (if empty)
 
 What gets PRESERVED:
   - Service users (ubuntu, SERVICE_USER)
@@ -441,15 +445,41 @@ phase_cleanup_chroot_mounts() {
             done < <(find "$chroot" -type l 2>/dev/null)
         done
     fi
+
+    # Remove SFTP base directory if empty (idempotent)
+    if [[ -d "$sftp_base" ]]; then
+        local remaining_items
+        remaining_items=$(ls -A "$sftp_base" 2>/dev/null | wc -l | tr -d ' ') || true
+        if [[ $remaining_items -eq 0 ]]; then
+            if [[ "$DRY_RUN" == true ]]; then
+                dry_run_log "Would remove empty SFTP base directory: $sftp_base"
+            else
+                rm -rf "$sftp_base" 2>/dev/null || true
+                log "Removed empty SFTP base directory: $sftp_base"
+            fi
+        else
+            info "SFTP base directory not empty (contains $remaining_items items), skipping removal"
+        fi
+    fi
 }
 
-# ========== PHASE 5: REMOVE DATABASE ==========
+# ========== PHASE 5: REMOVE DATABASE AND STATE FILES ==========
 
 phase_remove_database() {
-    phase "PHASE 5: Remove Database"
+    phase "PHASE 5: Remove Database and State Files"
 
     local db_path="/var/lib/sidedoor/certificates.db"
     local db_dir="/var/lib/sidedoor"
+
+    # Remove setup state file first (before directory removal)
+    if [[ -f "$db_dir/.setup-state" ]]; then
+        run_rm_file "$db_dir/.setup-state"
+    fi
+
+    # Remove SSH migration state file first (before directory removal)
+    if [[ -f "$db_dir/.ssh-migration-state" ]]; then
+        run_rm_file "$db_dir/.ssh-migration-state"
+    fi
 
     if [[ -f "$db_path" ]]; then
         local size
@@ -464,14 +494,31 @@ phase_remove_database() {
         ((++FILES_REMOVED))
     fi
 
-    # Remove directory if empty
+    # Remove all SQLite WAL files (-shm, -wal) that may remain
+    if [[ "$DRY_RUN" == false ]]; then
+        rm -f "$db_dir"/certificates.db* 2>/dev/null || true
+    else
+        if [[ -f "$db_dir"/certificates.db-shm ]]; then
+            local shm_size
+            shm_size=$(get_size "$db_dir"/certificates.db-shm)
+            dry_run_log "Would remove SQLite WAL: $db_dir/certificates.db-shm ($(format_size "$shm_size"))"
+        fi
+        if [[ -f "$db_dir"/certificates.db-wal ]]; then
+            local wal_size
+            wal_size=$(get_size "$db_dir"/certificates.db-wal)
+            dry_run_log "Would remove SQLite WAL: $db_dir/certificates.db-wal ($(format_size "$wal_size"))"
+        fi
+    fi
+
+    # Remove database directory (using rm -rf for idempotency)
     if [[ -d "$db_dir" ]]; then
         if [[ "$DRY_RUN" == true ]]; then
-            if [[ -z "$(ls -A "$db_dir" 2>/dev/null)" ]]; then
-                dry_run_log "Would remove directory: $db_dir (if empty)"
-            fi
+            local dir_size
+            dir_size=$(get_size "$db_dir")
+            dry_run_log "Would remove directory: $db_dir ($(format_size "$dir_size"))"
         else
-            rmdir "$db_dir" 2>/dev/null || true
+            rm -rf "$db_dir" 2>/dev/null || true
+            log "Removed directory: $db_dir"
         fi
     fi
 }
@@ -494,7 +541,20 @@ phase_remove_configuration() {
                 dry_run_log "Would remove directory: $config_dir (if empty)"
             fi
         else
-            rmdir "$config_dir" 2>/dev/null || true
+            rm -rf "$config_dir" 2>/dev/null || true
+        fi
+    fi
+
+    # Remove SSH config
+    local ssh_config="/etc/ssh/sshd_config.d/sidedoor.conf"
+    if [[ -f "$ssh_config" ]]; then
+        run_rm_file "$ssh_config"
+        # Reload sshd to apply config changes
+        if [[ "$DRY_RUN" == false ]]; then
+            systemctl reload sshd 2>/dev/null || true
+            log "Reloaded sshd service"
+        else
+            dry_run_log "Would reload sshd service"
         fi
     fi
 }
@@ -515,21 +575,28 @@ phase_remove_application_files() {
     fi
 }
 
-# ========== PHASE 8: REMOVE STATE FILES ==========
+# ========== PHASE 8: CLEANUP REMAINING ARTIFACTS ==========
 
-phase_remove_state_files() {
-    phase "PHASE 8: Remove State Files"
+phase_cleanup_remaining_artifacts() {
+    phase "PHASE 8: Cleanup Remaining Artifacts"
 
-    local state_dir="/var/lib/sidedoor"
+    local sftp_base="/home/sftp"
 
-    # Remove setup state
-    if [[ -f "$state_dir/.setup-state" ]]; then
-        run_rm_file "$state_dir/.setup-state"
-    fi
-
-    # Remove SSH migration state
-    if [[ -f "$state_dir/.ssh-migration-state" ]]; then
-        run_rm_file "$state_dir/.ssh-migration-state"
+    # Remove any remaining empty chroot home directories (idempotent)
+    if [[ -d "$sftp_base" ]]; then
+        for chroot_home in "$sftp_base"/*/; do
+            [[ -d "$chroot_home" ]] || continue
+            local remaining_items
+            remaining_items=$(ls -A "$chroot_home" 2>/dev/null | wc -l | tr -d ' ') || true
+            if [[ $remaining_items -eq 0 ]]; then
+                if [[ "$DRY_RUN" == true ]]; then
+                    dry_run_log "Would remove empty chroot home: $chroot_home"
+                else
+                    rm -rf "$chroot_home" 2>/dev/null || true
+                    log "Removed empty chroot home: $chroot_home"
+                fi
+            fi
+        done
     fi
 }
 
@@ -599,6 +666,18 @@ phase_verification() {
         ((++issues))
     fi
 
+    # Check database directory
+    if [[ -d /var/lib/sidedoor ]]; then
+        warn "Database directory still exists: /var/lib/sidedoor"
+        ((++issues))
+    fi
+
+    # Check SSH config
+    if [[ -f /etc/ssh/sshd_config.d/sidedoor.conf ]]; then
+        warn "SSH config still exists: /etc/ssh/sshd_config.d/sidedoor.conf"
+        ((++issues))
+    fi
+
     if [[ $issues -eq 0 ]]; then
         log "Verification passed: All components removed successfully"
     else
@@ -660,7 +739,7 @@ main() {
     phase_remove_database
     phase_remove_configuration
     phase_remove_application_files
-    phase_remove_state_files
+    phase_cleanup_remaining_artifacts
     phase_remove_repository_clone
     phase_verification
 
