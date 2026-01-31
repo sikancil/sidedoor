@@ -274,9 +274,9 @@ _write_to_log() {
 # Main logging function
 # Usage: log "LEVEL" "message" [line_number]
 log() {
-    local level=$1
-    local message=$2
-    local line=${3:-0}
+    local level="${1:-INFO}"
+    local message="${2:-}"
+    local line="${3:-0}"
 
     # Map legacy level names
     case "$level" in
@@ -320,13 +320,16 @@ error() {
 
 # Debug message (only shown if DEBUG=true)
 debug() {
+    local message="${1:-}"
+    local line="${2:-0}"
+
     if [[ "${DEBUG:-false}" == "true" ]]; then
-        log "DEBUG" "$1" "${2:-0}"
+        log "DEBUG" "$message" "$line"
     fi
     # Always write debug to log file
     local masked_message
-    masked_message=$(mask_sensitive "$1")
-    _write_to_log "DEBUG" "$masked_message" "$LOG_SCRIPT_NAME" "${2:-0}"
+    masked_message=$(mask_sensitive "$message")
+    _write_to_log "DEBUG" "$masked_message" "$LOG_SCRIPT_NAME" "$line"
 }
 
 # Phase/header message
