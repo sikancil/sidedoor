@@ -9,24 +9,29 @@ services:
       - "2222:22"  # SSH port for testing SFTP connections
     volumes:
       - ./data:/app/data
-      # Mount config file
+      # Mount config file (will be created by entrypoint if not exists)
       - ./config.json:/etc/sidedoor/config.json:ro
       # Persist database and certificates
       - sidedoor-data:/var/lib/sidedoor
       - sidedoor-certs:/app/data/certificates
       # Persist logs
       - sidedoor-logs:/var/log/sidedoor
+      # Cgroup mounts for systemd on Docker Desktop Mac
+      - /sys/fs/cgroup:/sys/fs/cgroup:rw
+    tmpfs:
+      # Systemd requires tmpfs
+      - /tmp:rw,mode=1777
+      - /run:rw,mode=755
     environment:
       - NODE_ENV=development
       - CONFIG_PATH=/etc/sidedoor/config.json
       - CRON_SECRET=dev-secret-change-in-production-min-32-chars
-      - SKIP_SYSTEMD=true  # Skip systemd initialization in dev mode
     cap_add:
-      - SYS_ADMIN  # Required for user management
+      - SYS_ADMIN  # Required for systemd and user management
     security_opt:
       - seccomp:unconfined
-    privileged: true  # Required for useradd, chroot, mount, etc.
-    stop_grace_period: 10s
+    privileged: true  # Required for systemd, useradd, chroot, mount, etc.
+    stop_grace_period: 30s
 
 volumes:
   sidedoor-data:

@@ -3,8 +3,9 @@ FROM ubuntu:22.04
 # Avoid prompts from apt
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Install dependencies (without systemd for development)
+# Install systemd and dependencies
 RUN apt-get update && apt-get install -y \
+    systemd systemd-sysv \
     openssh-server \
     sudo \
     curl \
@@ -34,8 +35,13 @@ RUN useradd -r -s /bin/bash sidedoor && \
     echo "sidedoor ALL=(ALL) NOPASSWD: /usr/sbin/sshd -t" >> /etc/sudoers.d/sidedoor && \
     echo "sidedoor ALL=(ALL) NOPASSWD: /usr/bin/pkill, /usr/bin/killall" >> /etc/sudoers.d/sidedoor && \
     echo "sidedoor ALL=(ALL) NOPASSWD: /bin/mount -l" >> /etc/sudoers.d/sidedoor && \
+    echo "sidedoor ALL=(ALL) NOPASSWD: /usr/local/sbin/sidedoor-systemd-helper" >> /etc/sudoers.d/sidedoor && \
     echo "root ALL=(sidedoor) NOPASSWD: /root/.bun/bin/bun" >> /etc/sudoers.d/sidedoor && \
     chmod 0440 /etc/sudoers.d/sidedoor
+
+# Install systemd helper script
+COPY scripts/systemd-helper.sh /usr/local/sbin/sidedoor-systemd-helper
+RUN chmod 755 /usr/local/sbin/sidedoor-systemd-helper
 
 # Configure SSH for dynamic users
 # Matches generated usernames: n0x + 6 hex chars (e.g., n0x1a2b3c)
@@ -49,6 +55,37 @@ RUN echo "Match User n0x*" > /etc/ssh/sshd_config.d/sidedoor.conf && \
     echo "    X11Forwarding no" >> /etc/ssh/sshd_config.d/sidedoor.conf && \
     echo "    PermitTunnel no" >> /etc/ssh/sshd_config.d/sidedoor.conf && \
     echo "    PasswordAuthentication no" >> /etc/ssh/sshd_config.d/sidedoor.conf
+
+# Create systemd service for Sidedoor API (DEV mode)
+RUN cat > /etc/systemd/system/sidedoor.service << 'EOF'
+[Unit]
+Description=Sidedoor SSH/SFTP Certificate Management Service (DEV)
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/app
+Environment="NODE_ENV=development"
+Environment="PATH=/root/.bun/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+ExecStart=/root/.bun/bin/bun run src/index.ts
+Restart=always
+RestartSec=10s
+StandardOutput=append:/var/log/sidedoor/sidedoor.log
+StandardError=append:/var/log/sidedoor/sidedoor-errors.log
+
+# Grant access to systemd for creating timers
+Delegate=yes
+CPUAccounting=yes
+MemoryAccounting=yes
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+# Enable services
+RUN systemctl enable sidedoor.service
+RUN systemctl enable ssh.service
 
 # Expose ports
 EXPOSE 3000 22
@@ -70,29 +107,22 @@ RUN chown -R sidedoor:sidedoor /app
 RUN chown -R sidedoor:sidedoor /var/log/sidedoor
 RUN chown -R sidedoor:sidedoor /var/lib/sidedoor
 
-# Fix permissions for bun binary - make it world executable and readable
-RUN chmod 755 /root/.bun/bin/bun && \
-    chmod 755 /root/.bun/bin/* 2>/dev/null || true
-
-# Create startup script that runs SSH and the API
-RUN cat > /app/start.sh << 'EOF'
+# Create entrypoint script for systemd on Docker Desktop
+RUN cat > /entrypoint.sh << 'EOF'
 #!/bin/bash
 set -e
 
-# Start SSH server
-echo "Starting SSH server..."
-/usr/sbin/sshd
+# Setup cgroups for systemd (Docker Desktop Mac workaround)
+if [ ! -d /sys/fs/cgroup/systemd ]; then
+    mkdir -p /sys/fs/cgroup/systemd 2>/dev/null || true
+    mount -t cgroup -o none,name=systemd cgroup /sys/fs/cgroup/systemd 2>/dev/null || true
+fi
 
-# Wait a bit for SSH to start
-sleep 1
-
-# Run API as root (dev mode - container is already privileged)
-echo "Starting Sidedoor API (DEV MODE - running as root)..."
-cd /app
-exec /root/.bun/bin/bun run src/index.ts
+# Start systemd as init
+exec /sbin/init
 EOF
 
-RUN chmod +x /app/start.sh
+RUN chmod +x /entrypoint.sh
 
-# Run as root (needed for SSH and user management)
-CMD ["/app/start.sh"]
+STOPSIGNAL SIGRTMIN+3
+ENTRYPOINT ["/entrypoint.sh"]

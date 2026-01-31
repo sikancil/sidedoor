@@ -14,9 +14,12 @@ services:
       - sidedoor-certs:/app/data/certificates
       # Persist systemd logs
       - sidedoor-logs:/var/log/sidedoor
+      # Additional cgroup mounts for systemd on Docker Desktop Mac
+      - /sys/fs/cgroup:/sys/fs/cgroup:rw
     tmpfs:
       # Systemd requires tmpfs for cgroups
-      - /sys/fs/cgroup:rw,mode=755
+      - /tmp:rw,mode=1777
+      - /run:rw,mode=755
     environment:
       - NODE_ENV=development
       - CONFIG_PATH=/etc/sidedoor/config.json

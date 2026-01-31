@@ -86,17 +86,12 @@ export class CertificateService {
     // Configure SSH chroot for dynamic users (one-time)
     await getSSHService().configureSSHChroot();
 
-    // Create systemd timer for cleanup (skip in dev mode)
-    const skipSystemd = process.env.SKIP_SYSTEMD === 'true';
-    if (!skipSystemd) {
-      await getSystemdService().createCleanupTimer({
-        username,
-        expiresAt,
-        cleanupEndpoint: `/admin/cleanup/${username}`,
-      });
-    } else {
-      console.log(`⚠️  DEV MODE: Skipping systemd timer creation for ${username}`);
-    }
+    // Create systemd timer for cleanup
+    await getSystemdService().createCleanupTimer({
+      username,
+      expiresAt,
+      cleanupEndpoint: `/admin/cleanup/${username}`,
+    });
 
     // Create README
     const readmePath = `${keysDir}/${id}/README.md`;

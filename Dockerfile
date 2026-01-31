@@ -20,10 +20,6 @@ RUN apt-get update && apt-get install -y \
 RUN curl -fsSL https://bun.sh/install | bash
 ENV PATH="/root/.bun/bin:${PATH}"
 
-# Setup systemd for container
-STOPSIGNAL SIGRTMIN+3
-CMD ["/sbin/init"]
-
 # Create log directory
 RUN mkdir -p /var/log/sidedoor
 
@@ -40,7 +36,12 @@ RUN useradd -r -s /bin/bash sidedoor && \
     echo "sidedoor ALL=(ALL) NOPASSWD: /usr/sbin/sshd -t" >> /etc/sudoers.d/sidedoor && \
     echo "sidedoor ALL=(ALL) NOPASSWD: /usr/bin/pkill, /usr/bin/killall" >> /etc/sudoers.d/sidedoor && \
     echo "sidedoor ALL=(ALL) NOPASSWD: /bin/mount -l" >> /etc/sudoers.d/sidedoor && \
+    echo "sidedoor ALL=(ALL) NOPASSWD: /usr/local/sbin/sidedoor-systemd-helper" >> /etc/sudoers.d/sidedoor && \
     chmod 0440 /etc/sudoers.d/sidedoor
+
+# Install systemd helper script
+COPY scripts/systemd-helper.sh /usr/local/sbin/sidedoor-systemd-helper
+RUN chmod 755 /usr/local/sbin/sidedoor-systemd-helper
 
 # Configure SSH for dynamic users
 # Matches generated usernames: n0x + 6 hex chars (e.g., n0x1a2b3c)
@@ -59,14 +60,14 @@ RUN echo "Match User n0x*" > /etc/ssh/sshd_config.d/sidedoor.conf && \
 RUN cat > /etc/systemd/system/sidedoor.service << 'EOF'
 [Unit]
 Description=Sidedoor SSH/SFTP Certificate Management Service
-After=network.target sshd.service
-Requires=sshd.service
+After=network.target
 
 [Service]
 Type=simple
-User=sidedoor
+User=root
 WorkingDirectory=/app
 Environment="NODE_ENV=production"
+Environment="PATH=/root/.bun/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 ExecStart=/root/.bun/bin/bun run src/index.ts
 Restart=always
 RestartSec=10s
@@ -107,5 +108,22 @@ RUN chown -R sidedoor:sidedoor /app
 RUN chown -R sidedoor:sidedoor /var/log/sidedoor
 RUN chown -R sidedoor:sidedoor /var/lib/sidedoor
 
-# Run as systemd
-ENTRYPOINT ["/sbin/init"]
+# Create entrypoint script for systemd on Docker Desktop
+RUN cat > /entrypoint.sh << 'EOF'
+#!/bin/bash
+set -e
+
+# Setup cgroups for systemd (Docker Desktop Mac workaround)
+if [ ! -d /sys/fs/cgroup/systemd ]; then
+    mkdir -p /sys/fs/cgroup/systemd 2>/dev/null || true
+    mount -t cgroup -o none,name=systemd cgroup /sys/fs/cgroup/systemd 2>/dev/null || true
+fi
+
+# Start systemd as init
+exec /sbin/init
+EOF
+
+RUN chmod +x /entrypoint.sh
+
+STOPSIGNAL SIGRTMIN+3
+ENTRYPOINT ["/entrypoint.sh"]
