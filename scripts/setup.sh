@@ -30,6 +30,8 @@ PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 source "$SCRIPT_DIR/lib/version.sh"
 source "$SCRIPT_DIR/lib/state.sh"
 source "$SCRIPT_DIR/lib/validate.sh"
+source "$SCRIPT_DIR/lib/ssh-migrate.sh"
+source "$SCRIPT_DIR/lib/sudo-wrapper.sh"
 
 # Default values
 SERVICE_USER="${SERVICE_USER:-sidedoor}"
@@ -39,6 +41,7 @@ FORCE=false
 SKIP_HARDENING=false
 VERIFY_ONLY=false
 SSH_KEY_PATH=""
+MIGRATE_SSH_PRIVATE_KEYS=false
 SETUP_MODE=""
 
 # Colors
@@ -57,13 +60,15 @@ Sidedoor Setup Script - Smart idempotent setup for Ubuntu servers
 Usage: sudo $0 [OPTIONS]
 
 Options:
-  --user USER          Service user to run the application (default: sidedoor)
-                       Use 'ubuntu' to use the existing default user
-  --force              Full reset before setup (removes and reinstalls everything)
-  --skip-hardening     Skip security hardening (UFW, fail2ban, SSH hardening)
-  --verify-only        Run verification checks without making changes
-  --ssh-key PATH       Path to SSH public key to add to ubuntu user
-  -h, --help           Show this help message
+  --user USER                    Service user to run the application (default: sidedoor)
+                                 Use 'ubuntu' to use the existing default user
+  --force                        Full reset before setup (removes and reinstalls everything)
+  --skip-hardening               Skip security hardening (UFW, fail2ban, SSH hardening)
+  --verify-only                  Run verification checks without making changes
+  --ssh-key PATH                 Path to SSH public key to add to ubuntu user
+  --migrate-ssh-private-keys     Include private keys in SSH migration from root
+                                 (default: false - public keys only)
+  -h, --help                     Show this help message
 
 Environment Variables:
   SERVICE_USER         Same as --user
@@ -88,6 +93,9 @@ Examples:
 
   # Setup with custom SSH port
   SSH_PORT=2222 sudo $0
+
+  # Setup with SSH private key migration from root
+  sudo $0 --user ubuntu --migrate-ssh-private-keys
 
 EOF
     exit 0
@@ -115,6 +123,10 @@ while [[ $# -gt 0 ]]; do
         --ssh-key)
             SSH_KEY_PATH="$2"
             shift 2
+            ;;
+        --migrate-ssh-private-keys)
+            MIGRATE_SSH_PRIVATE_KEYS=true
+            shift
             ;;
         -h|--help)
             show_help
@@ -160,10 +172,9 @@ check_requirements() {
 
     local requirements_met=true
 
-    # Check if running as root
+    # Check if running as root (auto-elevate if possible)
     if [[ $EUID -ne 0 ]]; then
-        error "This script must be run as root"
-        requirements_met=false
+        ensure_elevated "$@"
     else
         log "Running as root"
     fi
@@ -258,6 +269,25 @@ create_users() {
     # Smart validation using ensure_user from validate.sh
     if ensure_user "$SERVICE_USER"; then
         set_state "users_created"
+
+        # Validate user access permissions
+        if ! validate_user_access "$SERVICE_USER"; then
+            error "User access validation failed for $SERVICE_USER"
+            error "Cannot proceed with setup"
+            return 1
+        fi
+
+        # SSH migration from root to service user
+        if [[ "$SERVICE_USER" != "root" ]] && [[ -d /root/.ssh ]]; then
+            if [[ "$MIGRATE_SSH_PRIVATE_KEYS" == "true" ]]; then
+                log "Migrating SSH keys from root to $SERVICE_USER (including private keys)..."
+                ssh_migrate_keys "$SERVICE_USER" "true"
+            else
+                log "Migrating SSH keys from root to $SERVICE_USER (public keys only)..."
+                ssh_migrate_keys "$SERVICE_USER" "false"
+            fi
+        fi
+
         return 0
     fi
 }
@@ -773,12 +803,10 @@ create_backward_compat_symlink() {
 
 main() {
     echo ""
-    echo -e "${CYAN}╔═══════════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${CYAN}║                                                                   ║${NC}"
-    echo -e "${CYAN}║   ${NC}Sidedoor SSH/SFTP Certificate Management${NC}                 ${CYAN}║${NC}"
-    echo -e "${CYAN}║   ${NC}Smart Setup Script${NC}                                            ${CYAN}║${NC}"
-    echo -e "${CYAN}║                                                                   ║${NC}"
-    echo -e "${CYAN}╚═══════════════════════════════════════════════════════════════╝${NC}"
+    echo "============================================"
+    echo "  Sidedoor SSH/SFTP Certificate Management"
+    echo "  Smart Setup Script"
+    echo "============================================"
     echo ""
     echo -e "Service User: ${GREEN}$SERVICE_USER${NC}"
     echo -e "API Port:     ${GREEN}$API_PORT${NC}"

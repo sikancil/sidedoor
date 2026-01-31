@@ -251,3 +251,45 @@ validate_json() {
         grep -q '{.*}' "$file"
     fi
 }
+
+# Validate user access and permissions
+# Usage: validate_user_access "ubuntu"
+validate_user_access() {
+    local user=$1
+
+    # Check home directory exists
+    local home_dir
+    home_dir=$(eval echo "~$user")
+    if [[ ! -d "$home_dir" ]]; then
+        error "Home directory not found: $home_dir"
+        return 1
+    fi
+
+    # Test write access to home directory
+    local test_file="$home_dir/.write_test_$$"
+    if ! su - "$user" -c "touch $test_file" 2>/dev/null; then
+        error "User $user cannot write to home directory: $home_dir"
+        error "Possible causes:"
+        error "  • Disk full (df -h to check)"
+        error "  • Permission denied (ls -la $home_dir)"
+        error "  • Read-only filesystem"
+        return 1
+    fi
+    rm -f "$test_file"
+
+    # Verify user is in sudo group
+    if ! groups "$user" 2>/dev/null | grep -q "sudo"; then
+        error "User $user is not in sudo group"
+        error "Required for certificate operations"
+        return 1
+    fi
+
+    # Verify sudo actually works for this user
+    if ! su - "$user" -c "sudo -n true" 2>/dev/null; then
+        warn "User $user may require password for sudo operations"
+        warn "This could cause issues with certificate creation"
+    fi
+
+    log "✅ User $user access validated"
+    return 0
+}

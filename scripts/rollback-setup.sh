@@ -4,12 +4,13 @@
 # Removes all components installed by setup-production.sh
 #
 # Usage:
-#   sudo ./scripts/rollback-setup.sh [--full-reset] [--keep-logs]
+#   sudo ./scripts/rollback-setup.sh [--full-reset] [--keep-logs] [--rollback-ssh-migration]
 #
 # Options:
-#   --full-reset    Remove user (if not ubuntu), database, and all traces
-#   --keep-logs     Preserve log files for debugging
-#   -h, --help      Show this help message
+#   --full-reset             Remove user (if not ubuntu), database, and all traces
+#   --keep-logs              Preserve log files for debugging
+#   --rollback-ssh-migration Remove SSH keys migrated from root
+#   -h, --help               Show this help message
 #
 
 set -euo pipefail
@@ -18,10 +19,16 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 
+# Source SSH migration library if available
+if [[ -f "$SCRIPT_DIR/lib/ssh-migrate.sh" ]]; then
+    source "$SCRIPT_DIR/lib/ssh-migrate.sh"
+fi
+
 # Default values
 SERVICE_USER="${SERVICE_USER:-sidedoor}"
 FULL_RESET=false
 KEEP_LOGS=false
+ROLLBACK_SSH_MIGRATION=false
 
 # Colors
 RED='\033[0;31m'
@@ -44,6 +51,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --keep-logs)
             KEEP_LOGS=true
+            shift
+            ;;
+        --rollback-ssh-migration)
+            ROLLBACK_SSH_MIGRATION=true
             shift
             ;;
         --user)
@@ -104,6 +115,9 @@ fi
 echo "  - SSH configuration: /etc/ssh/sshd_config.d/sidedoor.conf"
 echo "  - Sudoers: /etc/sudoers.d/sidedoor"
 echo "  - State file: /var/lib/sidedoor/.setup-state"
+if [[ "$ROLLBACK_SSH_MIGRATION" == "true" ]]; then
+    echo "  - SSH keys migrated from root to $SERVICE_USER"
+fi
 if [[ "$KEEP_LOGS" == "false" ]]; then
     echo "  - Logs: /var/log/sidedoor"
 fi
@@ -221,6 +235,19 @@ log "Phase 7: Removing state tracking file..."
 rm -f /var/lib/sidedoor/.setup-state
 log "Removed .setup-state"
 
+# ========== PHASE 7.5: Rollback SSH Migration (if requested) ==========
+if [[ "$ROLLBACK_SSH_MIGRATION" == "true" ]] && declare -f ssh_rollback_migration &>/dev/null; then
+    log "Phase 7.5: Rolling back SSH migration..."
+
+    # Try both with and without private keys flag
+    ssh_rollback_migration "$SERVICE_USER" "false" 2>/dev/null || true
+    ssh_rollback_migration "$SERVICE_USER" "true" 2>/dev/null || true
+
+    # Also remove the SSH migration state file
+    rm -f /etc/sidedoor/.ssh-migration-state
+    log "Removed SSH migration state"
+fi
+
 # ========== PHASE 8: Remove Chroot Base Directory ==========
 log "Phase 8: Cleaning up chroot directories..."
 
@@ -252,6 +279,9 @@ echo "  ✓ Systemd service and timers"
 echo "  ✓ SSH chroot configuration"
 echo "  ✓ Sudoers configuration"
 echo "  ✓ State tracking file"
+if [[ "$ROLLBACK_SSH_MIGRATION" == "true" ]]; then
+    echo "  ✓ SSH migration state"
+fi
 if [[ "$FULL_RESET" == "true" ]]; then
     echo "  ✓ Application files"
     echo "  ✓ Configuration files"

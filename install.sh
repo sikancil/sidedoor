@@ -7,9 +7,10 @@
 #   curl -fsSL https://raw.githubusercontent.com/sikancil/sidedoor/wizard/install.sh | bash
 #
 # Environment Variables:
-#   SIDEDOOR_BRANCH      Git branch to clone (default: wizard)
-#   SIDEDOOR_USER        Service user name (default: ubuntu)
-#   SKIP_SETUP           Skip setup.sh execution (default: false)
+#   SIDEDOOR_BRANCH           Git branch to clone (default: wizard)
+#   SIDEDOOR_USER             Service user name (default: ubuntu)
+#   SKIP_SETUP                Skip setup.sh execution (default: false)
+#   MIGRATE_SSH_PRIVATE_KEYS  Include private keys in SSH migration (default: false)
 #
 # Examples:
 #   # Standard installation
@@ -21,6 +22,9 @@
 #   # Custom user
 #   curl -fsSL https://raw.githubusercontent.com/sikancil/sidedoor/wizard/install.sh | SERVICE_USER=sidedoor bash
 #
+#   # With SSH private key migration
+#   curl -fsSL https://raw.githubusercontent.com/sikancil/sidedoor/wizard/install.sh | MIGRATE_SSH_PRIVATE_KEYS=true bash
+#
 
 set -euo pipefail
 
@@ -29,6 +33,7 @@ REPO_URL="https://github.com/sikancil/sidedoor.git"
 BRANCH="${SIDEDOOR_BRANCH:-wizard}"
 SERVICE_USER="${SIDEDOOR_USER:-ubuntu}"
 SKIP_SETUP="${SKIP_SETUP:-false}"
+MIGRATE_SSH_PRIVATE_KEYS="${MIGRATE_SSH_PRIVATE_KEYS:-false}"
 CLONE_DIR_BASE="/tmp/sidedoor-bootstrap"
 
 # Global for cleanup trap access
@@ -69,15 +74,6 @@ header() {
 }
 
 # ========== VALIDATION FUNCTIONS ==========
-
-check_root() {
-    if [[ $EUID -ne 0 ]]; then
-        error "This script must be run as root"
-        error "Please use: sudo $0"
-        exit 1
-    fi
-    log "Running as root"
-}
 
 check_os() {
     if [[ ! -f /etc/os-release ]]; then
@@ -237,11 +233,34 @@ delegate_to_setup() {
         exit 1
     fi
 
-    log "Executing: bash $setup_script --user $SERVICE_USER"
+    # Source the SSH migration library for migration before setup
+    local ssh_migrate_lib="$clone_dir/scripts/lib/ssh-migrate.sh"
+    if [[ -f "$ssh_migrate_lib" ]]; then
+        source "$ssh_migrate_lib"
+
+        # Perform SSH migration if needed
+        if [[ "${SSH_MIGRATION_NEEDED:-false}" == "true" ]] && [[ "$SERVICE_USER" != "root" ]]; then
+            if [[ "$MIGRATE_SSH_PRIVATE_KEYS" == "true" ]]; then
+                log "Migrating SSH keys from root to $SERVICE_USER (including private keys)..."
+                ssh_migrate_keys "$SERVICE_USER" "true"
+            else
+                log "Migrating SSH keys from root to $SERVICE_USER (public keys only)..."
+                ssh_migrate_keys "$SERVICE_USER" "false"
+            fi
+        fi
+    fi
+
+    # Build setup command with optional flags
+    local setup_cmd="bash \"$setup_script\" --user \"$SERVICE_USER\""
+    if [[ "$MIGRATE_SSH_PRIVATE_KEYS" == "true" ]]; then
+        setup_cmd="$setup_cmd --migrate-ssh-private-keys"
+    fi
+
+    log "Executing: $setup_cmd"
     echo ""
 
     # Run setup script and capture exit code
-    bash "$setup_script" --user "$SERVICE_USER"
+    eval "$setup_cmd"
     local exit_code=$?
 
     echo ""
@@ -272,13 +291,15 @@ cleanup() {
 # ========== MAIN FUNCTION ==========
 
 main() {
+    # Source wrapper libraries (available after cloning, but we need them before)
+    # For now, define inline functions that will be available
+    # The actual libraries will be sourced after cloning
+
     echo ""
-    echo -e "${CYAN}╔═══════════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${CYAN}║                                                                   ║${NC}"
-    echo -e "${CYAN}║   ${NC}Sidedoor SSH/SFTP Certificate Management${NC}                 ${CYAN}║${NC}"
-    echo -e "${CYAN}║   ${NC}Bootstrap Installer${NC}                                          ${CYAN}║${NC}"
-    echo -e "${CYAN}║                                                                   ║${NC}"
-    echo -e "${CYAN}╚═══════════════════════════════════════════════════════════════╝${NC}"
+    echo "============================================"
+    echo "  Sidedoor SSH/SFTP Certificate Management"
+    echo "  Bootstrap Installer"
+    echo "============================================"
     echo ""
     echo -e "Branch:       ${GREEN}$BRANCH${NC}"
     echo -e "Service User: ${GREEN}$SERVICE_USER${NC}"
@@ -288,11 +309,36 @@ main() {
     # Set trap for cleanup on exit (use global CLONE_DIR)
     trap cleanup EXIT
 
+    # Check root/sudo elevation (inline for bootstrap)
+    if [[ $EUID -ne 0 ]]; then
+        if ! command -v sudo &>/dev/null; then
+            error "This script requires root privileges"
+            error "Sudo is not available on this system"
+            exit 1
+        fi
+        if ! sudo -v &>/dev/null; then
+            error "This script requires root privileges"
+            error "Sudo authentication failed"
+            exit 1
+        fi
+        log "🔐 Elevating privileges with sudo..."
+        exec sudo "$0" "$@"
+    fi
+
     # Run installation phases
-    check_root
     check_os
     install_minimal_deps
     create_user_smart
+
+    # SSH migration from root to service user
+    if [[ "$SERVICE_USER" != "root" ]] && id "$SERVICE_USER" &>/dev/null; then
+        if [[ -d /root/.ssh ]]; then
+            log "Checking for SSH migration from root..."
+            # We'll do the actual migration after cloning when libraries are available
+            SSH_MIGRATION_NEEDED="true"
+        fi
+    fi
+
     configure_git
     CLONE_DIR=$(clone_repo)
 

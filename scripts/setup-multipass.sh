@@ -80,14 +80,14 @@ runcmd:
   # Print success message
   - |
     cat >> /etc/motd << 'MOTD'
-    ╔═══════════════════════════════════════════════════════════╗
-    ║       VM Access API Development Environment Ready!        ║
-    ╠═══════════════════════════════════════════════════════════╣
-    ║   SSH access:  multipass shell vm-access-dev               ║
-    ║   Project dir: /home/ubuntu/vm-access                      ║
-    ║   Username:    ubuntu (sudo access)                        ║
-    ║   Service:     tempo (for app user)                        ║
-    ╚═══════════════════════════════════════════════════════════╝
+============================================
+  VM Access API Development Environment Ready!
+============================================
+  SSH access:  multipass shell vm-access-dev
+  Project dir: /home/ubuntu/vm-access
+  Username:    ubuntu (sudo access)
+  Service:     tempo (for app user)
+============================================
     MOTD
 EOF
 
