@@ -29,6 +29,31 @@ BRANCH="${SIDEDOOR_BRANCH:-wizard}"
 DRY_RUN="${DRY_RUN:-false}"
 CLONE_DIR_BASE="/tmp/sidedoor-uninstall-$$"
 
+# Parse command-line arguments
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --dry-run)
+            DRY_RUN=true
+            shift
+            ;;
+        --help|-h)
+            echo "Sidedoor Uninstaller - Remove all Sidedoor installation artifacts"
+            echo ""
+            echo "Usage: $0 [--dry-run]"
+            echo ""
+            echo "Options:"
+            echo "  --dry-run    Preview what would be removed without actual deletion"
+            echo "  -h, --help   Show this help message"
+            exit 0
+            ;;
+        *)
+            echo "Unknown option: $1"
+            echo "Use --help for usage information"
+            exit 1
+            ;;
+    esac
+done
+
 # Colors
 RED='\033[0;31m'
 GREEN='\033[0;32m'
