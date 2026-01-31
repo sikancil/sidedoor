@@ -329,6 +329,7 @@ _ssh_copy_private_keys() {
     local source_dir=$1
     local target_dir=$2
     local target_user=$3
+    local backup_dir=${4:-}
 
     log "  Copying private keys..."
 
@@ -371,6 +372,11 @@ _ssh_copy_private_keys() {
         chown "$target_user:$target_user" "$target_file"
         chmod 600 "$target_file"
         log "  Copied: $key_name"
+
+        # Create marker file for rollback
+        if [[ -n "$backup_dir" ]]; then
+            touch "$backup_dir/${key_name}.migrated"
+        fi
     done
 
     # Also copy public keys if they exist
@@ -405,6 +411,13 @@ ssh_migrate_keys() {
     target_ssh_dir=$(_ssh_get_ssh_dir "$target_user")
     target_home=$(dirname "$target_ssh_dir")
 
+    # Check if running as root (required for accessing /root/.ssh)
+    if [[ $EUID -ne 0 ]]; then
+        log "SSH migration requires root access (skipping - not running as root)"
+        log "  SSH migration will be handled during installation"
+        return 0
+    fi
+
     # Check if already migrated
     if _ssh_is_migrated "$target_user" "$include_private"; then
         log "SSH migration already completed for $target_user (skipping)"
@@ -417,7 +430,8 @@ ssh_migrate_keys() {
 
     # Check if source SSH directory exists
     if [[ ! -d "$source_ssh_dir" ]]; then
-        log "No SSH directory found for root user (skipping migration)"
+        log "No SSH directory found at $source_ssh_dir (skipping migration)"
+        log "  Root user has no SSH keys to migrate"
         return 0
     fi
 
@@ -435,6 +449,25 @@ ssh_migrate_keys() {
 
     local files_migrated=0
     local errors=0
+
+    # Create backup directory for rollback
+    local backup_dir="/var/lib/sidedoor/ssh-backup-${target_user}"
+    mkdir -p "$backup_dir"
+    chmod 700 "$backup_dir"
+
+    # Backup existing target files before migration
+    if [[ -f "$target_ssh_dir/authorized_keys" ]]; then
+        cp "$target_ssh_dir/authorized_keys" "$backup_dir/authorized_keys"
+        log "✓ Backed up authorized_keys"
+    fi
+    if [[ -f "$target_ssh_dir/config" ]]; then
+        cp "$target_ssh_dir/config" "$backup_dir/config"
+        log "✓ Backed up config"
+    fi
+    if [[ -f "$target_ssh_dir/known_hosts" ]]; then
+        cp "$target_ssh_dir/known_hosts" "$backup_dir/known_hosts"
+        log "✓ Backed up known_hosts"
+    fi
 
     # Ensure target SSH directory exists
     mkdir -p "$target_ssh_dir"
@@ -490,6 +523,8 @@ ssh_migrate_keys() {
             cp "$pub_file" "$target_ssh_dir/$key_name"
             chown "$target_user:$target_user" "$target_ssh_dir/$key_name"
             chmod 644 "$target_ssh_dir/$key_name"
+            # Create marker file for rollback
+            touch "$backup_dir/${key_name}.migrated"
             ((files_migrated++)) || true
         fi
     done < <(find "$source_ssh_dir" -maxdepth 1 -name "*.pub" -type f -print0 2>/dev/null)
@@ -497,7 +532,7 @@ ssh_migrate_keys() {
     # 5. Copy private keys (if requested)
     if [[ "$include_private" == "true" ]]; then
         log "→ Migrating private keys (--migrate-ssh-private-keys enabled)..."
-        _ssh_copy_private_keys "$source_ssh_dir" "$target_ssh_dir" "$target_user"
+        _ssh_copy_private_keys "$source_ssh_dir" "$target_ssh_dir" "$target_user" "$backup_dir"
     else
         log "→ Private keys NOT copied (use --migrate-ssh-private-keys to include)"
     fi
@@ -585,8 +620,23 @@ ssh_rollback_migration() {
         return 0
     fi
 
-    warn "This will remove SSH keys migrated from root to $target_user"
-    warn "Original keys for $target_user will be preserved"
+    # Check for backup files
+    local backup_dir="/var/lib/sidedoor/ssh-backup-${target_user}"
+    local has_backup=false
+
+    if [[ -d "$backup_dir" ]]; then
+        has_backup=true
+        log "Found backup directory: $backup_dir"
+    fi
+
+    warn "This will rollback SSH migration from root to $target_user"
+    if [[ "$has_backup" == "true" ]]; then
+        warn "Original keys will be restored from backup"
+    else
+        warn "⚠️  No backup found - keys will be removed"
+        warn "⚠️  Original keys for $target_user should be preserved"
+    fi
+    warn "⚠️  Root SSH login will be re-enabled"
     echo ""
     read -p "Continue? (yes/no): " -r
     echo
@@ -596,28 +646,93 @@ ssh_rollback_migration() {
         return 0
     fi
 
-    # Note: This is a simplified rollback
-    # In production, you'd want to track which specific keys were added
-    # For now, we warn the user and clear the state
-
     log "Rolling back SSH migration..."
-    log ""
-    warn "⚠️  Automatic rollback not fully implemented"
-    warn "⚠️  Manual review recommended:"
-    warn "   $target_ssh_dir/authorized_keys"
-    warn "   $target_ssh_dir/config"
-    warn "   $target_ssh_dir/known_hosts"
 
-    # Clear migration state
+    # 1. Re-enable root SSH login
+    _ssh_enable_root_login
+
+    # 2. Restore from backup if available, otherwise warn user
+    if [[ "$has_backup" == "true" ]]; then
+        log "Restoring files from backup..."
+
+        # Restore authorized_keys
+        if [[ -f "$backup_dir/authorized_keys" ]]; then
+            cp "$backup_dir/authorized_keys" "$target_ssh_dir/authorized_keys"
+            chown "$target_user:$target_user" "$target_ssh_dir/authorized_keys"
+            chmod 600 "$target_ssh_dir/authorized_keys"
+            log "✓ Restored authorized_keys"
+        fi
+
+        # Restore config
+        if [[ -f "$backup_dir/config" ]]; then
+            cp "$backup_dir/config" "$target_ssh_dir/config"
+            chown "$target_user:$target_user" "$target_ssh_dir/config"
+            chmod 600 "$target_ssh_dir/config"
+            log "✓ Restored config"
+        fi
+
+        # Restore known_hosts
+        if [[ -f "$backup_dir/known_hosts" ]]; then
+            cp "$backup_dir/known_hosts" "$target_ssh_dir/known_hosts"
+            chown "$target_user:$target_user" "$target_ssh_dir/known_hosts"
+            chmod 600 "$target_ssh_dir/known_hosts"
+            log "✓ Restored known_hosts"
+        fi
+
+        # Remove migrated public keys
+        while IFS= read -r -d '' pub_file; do
+            local key_name
+            key_name=$(basename "$pub_file")
+            if [[ -f "$backup_dir/${key_name}.migrated" ]]; then
+                rm -f "$target_ssh_dir/$key_name"
+                log "✓ Removed migrated public key: $key_name"
+            fi
+        done < <(find "$target_ssh_dir" -maxdepth 1 -name "*.pub" -type f -print0 2>/dev/null)
+
+        # Remove migrated private keys if they were migrated
+        if [[ "$include_private" == "true" ]]; then
+            while IFS= read -r -d '' key_file; do
+                local key_name
+                key_name=$(basename "$key_file")
+                if [[ -f "$backup_dir/${key_name}.migrated" ]]; then
+                    rm -f "$target_ssh_dir/$key_name"
+                    log "✓ Removed migrated private key: $key_name"
+                fi
+            done < <(find "$target_ssh_dir" -maxdepth 1 -type f \
+                ! -name "*.pub" \
+                ! -name "authorized_keys" \
+                ! -name "config" \
+                ! -name "known_hosts" \
+                -print0 2>/dev/null)
+        fi
+
+        # Remove backup directory
+        rm -rf "$backup_dir"
+        log "✓ Backup directory removed"
+
+    else
+        log ""
+        warn "⚠️  No backup found - manual cleanup required"
+        warn "Please review and remove migrated keys from:"
+        warn "   $target_ssh_dir/authorized_keys"
+        warn "   $target_ssh_dir/config"
+        warn "   $target_ssh_dir/known_hosts"
+        warn ""
+        warn "Migrated files from root should be removed manually"
+    fi
+
+    # 3. Clear migration state
     local state_key="ssh_migrated_to_${target_user}"
     if [[ "$include_private" == "true" ]]; then
         state_key="${state_key}_with_private"
     fi
 
     sed -i "/^${state_key}=/d" "$SSH_MIGRATION_STATE" 2>/dev/null || true
+    log "✓ Migration state cleared"
 
-    log "Migration state cleared"
-    log "Please manually remove any migrated keys from $target_ssh_dir"
+    log ""
+    log "✅ Rollback complete"
+    log "   Root SSH login has been re-enabled"
 
     return 0
 }
