@@ -245,7 +245,8 @@ main() {
             exit 1
         fi
         log "Elevating privileges with sudo..."
-        exec sudo "$0" "$@"
+        # Preserve environment and pass original arguments
+        exec sudo -E bash -c '"$0" "$@"' bash "$0" "$@"
     fi
 
     # Run uninstallation phases
