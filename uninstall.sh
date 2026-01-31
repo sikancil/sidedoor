@@ -245,8 +245,12 @@ main() {
             exit 1
         fi
         log "Elevating privileges with sudo..."
-        # Preserve environment and pass original arguments
-        exec sudo -E bash -c '"$0" "$@"' bash "$0" "$@"
+        # Re-run script with sudo, explicitly passing DRY_RUN
+        if [[ "$DRY_RUN" == "true" ]]; then
+            exec sudo env DRY_RUN=true "$0" "$@"
+        else
+            exec sudo "$0" "$@"
+        fi
     fi
 
     # Run uninstallation phases
