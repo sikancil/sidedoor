@@ -72,20 +72,16 @@ async function start() {
   const configPath = process.env.CONFIG_PATH || DEFAULT_CONFIG.configPath;
   const config = await ensureConfig(configPath);
 
-  // Check if running in development mode without systemd
-  const skipSystemd = process.env.SKIP_SYSTEMD === 'true';
+  // AUTOMATED: Sync UFW with config at startup
+  console.log('Checking UFW configuration...');
+  await syncUfwIfNeeded(config);
 
-  if (!skipSystemd) {
-    // AUTOMATED: Sync UFW with config at startup
-    console.log('Checking UFW configuration...');
-    await syncUfwIfNeeded(config);
+  // Ensure log directory exists
+  await getSystemdService().ensureLogDirectory();
 
-    // Ensure log directory exists
-    await getSystemdService().ensureLogDirectory();
-
-    // Configure SSH for dynamic users
-    console.log('Configuring SSH for dynamic users...');
-    await getSSHService().configureSSHChroot();
+  // Configure SSH for dynamic users
+  console.log('Configuring SSH for dynamic users...');
+  await getSSHService().configureSSHChroot();
 
     // Recover timers for active certificates
     console.log('Recovering active certificate timers...');
@@ -109,11 +105,6 @@ async function start() {
         console.warn(`  - ${issue.type}: ${issue.description}`);
       });
     }
-  } else {
-    console.log('⚠️  Running in DEVELOPMENT MODE without systemd');
-    console.log('⚠️  Certificate expiration timers will NOT be created');
-    console.log('⚠️  Manual cleanup via admin endpoints will be required');
-  }
 
   await app.listen(config.port);
 

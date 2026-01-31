@@ -130,8 +130,8 @@ export class CertificateService {
       public_key: publicKey,
       private_key_path: privateKeyPath,
       readme_path: readmePath,
-      systemd_timer_name: skipSystemd ? null : `sidedoor-${username}`,
-      systemd_timer_created_at: skipSystemd ? null : new Date().toISOString(),
+      systemd_timer_name: `sidedoor-${username}`,
+      systemd_timer_created_at: new Date().toISOString(),
     });
 
     // Return based on responseType
