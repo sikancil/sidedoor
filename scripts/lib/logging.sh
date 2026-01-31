@@ -27,6 +27,7 @@ LOG_FD=3  # File descriptor for log output
 LOG_SCRIPT_NAME=""
 LOG_ENABLED=true
 _LOG_INITIALIZED=false  # Prevent double initialization
+_LOG_FD_OPEN=false  # Track if fd 3 is actually open
 
 # Colors (reset if not a terminal)
 if [[ -t 1 ]]; then
@@ -189,15 +190,19 @@ init_logging() {
     # Set restrictive permissions
     chmod 700 "$LOG_DIR" 2>/dev/null || true
 
-    # Open log file for writing (fd 3) with full error suppression
-    # Use subshell to suppress all errors from exec
+    # Open log file for writing (fd 3)
+    # Try to open fd 3; if successful, set _LOG_FD_OPEN flag
     if [[ "${NO_LOG_FILE:-}" != "true" ]]; then
-        if (exec 3>"$LOG_FILE") 2>/dev/null; then
+        # Redirect stderr to /dev/null for this specific exec call
+        # This requires a more complex approach
+        if exec 3>"$LOG_FILE" 2>/dev/null; then
+            _LOG_FD_OPEN=true
             chmod 600 "$LOG_FILE" 2>/dev/null || true
         else
             # Failed to open fd 3, disable file logging
             NO_LOG_FILE="true"
             LOG_FILE=""
+            _LOG_FD_OPEN=false
         fi
     fi
 
@@ -205,7 +210,7 @@ init_logging() {
     _LOG_INITIALIZED=true
 
     # Write log header (only if fd 3 is valid)
-    if [[ "${NO_LOG_FILE:-}" != "true" ]]; then
+    if [[ "$_LOG_FD_OPEN" == "true" ]]; then
         _write_log_header 2>/dev/null || true
     fi
 
@@ -215,9 +220,8 @@ init_logging() {
 
 # Write log header with system information
 _write_log_header() {
-    if [[ "${NO_LOG_FILE:-}" == "true" ]]; then
-        return
-    fi
+    # Only write if fd 3 is confirmed open
+    [[ "$_LOG_FD_OPEN" != "true" ]] && return 0
 
     local timestamp
     timestamp=$(_log_timestamp)
@@ -257,9 +261,8 @@ _write_to_log() {
     local script="${3:-${LOG_SCRIPT_NAME:-unknown}}"
     local line=${4:-0}
 
-    if [[ "${NO_LOG_FILE:-}" == "true" ]]; then
-        return
-    fi
+    # Only write if fd 3 is confirmed open
+    [[ "$_LOG_FD_OPEN" != "true" ]] && return 0
 
     local timestamp
     timestamp=$(_log_timestamp)
@@ -338,7 +341,7 @@ phase() {
     echo ""
 
     # Also write to log file
-    if [[ "${NO_LOG_FILE:-}" != "true" ]]; then
+    if [[ "$_LOG_FD_OPEN" == "true" ]]; then
         echo "" >&3
         echo "===============================================================" >&3
         echo "  $message" >&3
@@ -403,10 +406,8 @@ log_command() {
 
 # Close logging and write summary
 close_logging() {
-    # Skip if file logging was disabled
-    if [[ "${NO_LOG_FILE:-}" == "true" ]]; then
-        return
-    fi
+    # Skip if fd 3 was never opened
+    [[ "$_LOG_FD_OPEN" != "true" ]] && return 0
 
     local timestamp
     timestamp=$(_log_timestamp)
@@ -419,6 +420,7 @@ close_logging() {
 
     # Close file descriptor
     exec 3>&-
+    _LOG_FD_OPEN=false
 
     # Display log location to user (only if log file was created)
     if [[ -n "$LOG_FILE" && -f "$LOG_FILE" ]]; then
