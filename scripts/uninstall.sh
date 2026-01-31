@@ -191,7 +191,7 @@ run_rm() {
             dry_run_log "Would remove: $path ($size_human)"
         fi
         ((TOTAL_SIZE_BYTES += size))
-        ((FILES_REMOVED++))
+        ((++FILES_REMOVED))
     else
         if [[ "$force" == true ]]; then
             rm -rf "$path" 2>/dev/null || true
@@ -201,7 +201,7 @@ run_rm() {
         if [[ ! -e "$path" ]]; then
             log "Removed: $path"
             ((TOTAL_SIZE_BYTES += size))
-            ((FILES_REMOVED++))
+            ((++FILES_REMOVED))
         else
             warn "Failed to remove: $path"
         fi
@@ -224,13 +224,13 @@ run_rm_file() {
         size_human=$(format_size "$size")
         dry_run_log "Would remove: $path ($size_human)"
         ((TOTAL_SIZE_BYTES += size))
-        ((FILES_REMOVED++))
+        ((++FILES_REMOVED))
     else
         rm -f "$path" 2>/dev/null || true
         if [[ ! -f "$path" ]]; then
             log "Removed: $path"
             ((TOTAL_SIZE_BYTES += size))
-            ((FILES_REMOVED++))
+            ((++FILES_REMOVED))
         fi
     fi
 }
@@ -247,11 +247,11 @@ run_umount() {
         local source
         source=$(findmnt -n -o SOURCE "$mount_point" 2>/dev/null || echo "unknown")
         dry_run_log "Would unmount: $mount_point (from: $source)"
-        ((MOUNTS_UNMOUNTED++))
+        ((++MOUNTS_UNMOUNTED))
     else
         if umount -l "$mount_point" 2>/dev/null; then
             log "Unmounted: $mount_point"
-            ((MOUNTS_UNMOUNTED++))
+            ((++MOUNTS_UNMOUNTED))
         else
             warn "Failed to unmount: $mount_point"
         fi
@@ -304,7 +304,7 @@ phase_stop_services() {
             systemctl stop sidedoor 2>/dev/null || true
             log "Stopped service: sidedoor"
         fi
-        ((SERVICES_STOPPED++))
+        ((++SERVICES_STOPPED))
     fi
 
     # Stop all timers
@@ -322,7 +322,7 @@ phase_stop_services() {
                 fi
             fi
         done
-        ((TIMERS_REMOVED += $(echo "$timers" | wc -l)))
+        ((TIMERS_REMOVED += $(echo "$timers" | wc -l))) || true
     fi
 }
 
@@ -401,7 +401,7 @@ phase_remove_dynamic_users() {
             userdel -r "$user" 2>/dev/null || true
             log "Removed user: $user"
         fi
-        ((USERS_REMOVED++))
+        ((++USERS_REMOVED))
     done
 }
 
@@ -461,7 +461,7 @@ phase_remove_database() {
             log "Removed database: $db_path"
         fi
         ((TOTAL_SIZE_BYTES += size))
-        ((FILES_REMOVED++))
+        ((++FILES_REMOVED))
     fi
 
     # Remove directory if empty
@@ -572,29 +572,31 @@ phase_verification() {
     # Check services
     if systemctl is-enabled --quiet sidedoor 2>/dev/null; then
         warn "Service still enabled: sidedoor"
-        ((issues++))
+        ((++issues))
     fi
 
     # Check timers
     local remaining_timers
-    remaining_timers=$(ls /etc/systemd/system/sidedoor-*.timer 2>/dev/null | wc -l | tr -d ' ' || echo "0")
+    remaining_timers=$(ls /etc/systemd/system/sidedoor-*.timer 2>/dev/null | wc -l | tr -d ' ') || true
+    remaining_timers=${remaining_timers:-0}
     if [[ $remaining_timers -gt 0 ]]; then
         warn "Remaining timers: $remaining_timers"
-        ((issues++))
+        ((++issues))
     fi
 
     # Check dynamic users
     local remaining_users
     remaining_users=$(grep -cE '^n0x[0-9a-f]{6}:' /etc/passwd 2>/dev/null || echo "0")
+    remaining_users=$(echo "$remaining_users" | tr -d '[:space:]')
     if [[ $remaining_users -gt 0 ]]; then
         warn "Remaining dynamic users: $remaining_users"
-        ((issues++))
+        ((++issues))
     fi
 
     # Check database
     if [[ -f /var/lib/sidedoor/certificates.db ]]; then
         warn "Database still exists: /var/lib/sidedoor/certificates.db"
-        ((issues++))
+        ((++issues))
     fi
 
     if [[ $issues -eq 0 ]]; then
