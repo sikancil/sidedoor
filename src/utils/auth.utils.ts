@@ -1,5 +1,5 @@
 import { getConfig } from '../config';
-import { Context } from 'elysia';
+import type { Context } from 'elysia';
 
 export interface AuthenticatedContext extends Context {
   auth?: {
@@ -13,7 +13,7 @@ export function validateAuthenticatorToken(token: string): boolean {
   return token === config.authenticatorToken;
 }
 
-export function extractBearerToken(authorizationHeader: string | undefined): string | null {
+export function extractBearerToken(authorizationHeader: string | undefined | null): string | null {
   if (!authorizationHeader) {
     return null;
   }
@@ -23,7 +23,7 @@ export function extractBearerToken(authorizationHeader: string | undefined): str
     return null;
   }
 
-  return parts[1];
+  return parts[1] ?? null;
 }
 
 export function createAuthMiddleware() {

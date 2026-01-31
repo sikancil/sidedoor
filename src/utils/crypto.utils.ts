@@ -1,7 +1,6 @@
 import { mkdirSync, existsSync, chmodSync } from 'node:fs';
 import { promises as fs } from 'node:fs';
-import { randomBytes } from 'node:crypto';
-import { PRIVATE_KEY_PERMISSIONS, CERTIFICATE_ID_LENGTH } from '../config/constants';
+import { PRIVATE_KEY_PERMISSIONS } from '../config/constants';
 
 export interface KeyPairResult {
   publicKey: string;
@@ -30,16 +29,23 @@ export async function generateSSHKeyPair(
   const publicKeyPath = `${privateKeyPath}.pub`;
 
   // Generate Ed25519 key pair using ssh-keygen
-  const proc = Bun.spawn([
-    'ssh-keygen',
-    '-t', 'ed25519',
-    '-f', privateKeyPath,
-    '-N', '', // No passphrase
-    '-C', `certificate-${certificateId}`,
-  ], {
-    stdout: 'pipe',
-    stderr: 'pipe',
-  });
+  const proc = Bun.spawn(
+    [
+      'ssh-keygen',
+      '-t',
+      'ed25519',
+      '-f',
+      privateKeyPath,
+      '-N',
+      '', // No passphrase
+      '-C',
+      `certificate-${certificateId}`,
+    ],
+    {
+      stdout: 'pipe',
+      stderr: 'pipe',
+    }
+  );
 
   const exitCode = await proc.exited;
   const stderr = await new Response(proc.stderr).text();
@@ -72,8 +78,8 @@ export function ensureDirectory(path: string): void {
 
 export function formatPrivateKey(privateKey: string): string {
   // Ensure proper PEM formatting
-  const lines = privateKey.split('\n').filter(line => line.trim());
-  if (!lines[0].startsWith('-----BEGIN')) {
+  const lines = privateKey.split('\n').filter((line) => line.trim());
+  if (lines.length === 0 || !lines[0]!.startsWith('-----BEGIN')) {
     return `-----BEGIN OPENSSH PRIVATE KEY-----\n${privateKey}\n-----END OPENSSH PRIVATE KEY-----`;
   }
   return privateKey;

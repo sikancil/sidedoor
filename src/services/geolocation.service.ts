@@ -1,4 +1,8 @@
-import { IP_API_BATCH_URL, IP_API_RATE_LIMIT_DELAY, IP_API_MAX_BATCH_SIZE } from '../config/constants';
+import {
+  IP_API_BATCH_URL,
+  IP_API_RATE_LIMIT_DELAY,
+  IP_API_MAX_BATCH_SIZE,
+} from '../config/constants';
 
 export interface GeolocationData {
   status: 'success' | 'fail';
@@ -76,7 +80,7 @@ export class GeolocationService {
     }
 
     try {
-      const requestBody = ips.map(ip => ({ query: ip }));
+      const requestBody = ips.map((ip) => ({ query: ip }));
       const response = await fetch(IP_API_BATCH_URL, {
         method: 'POST',
         headers: {
@@ -115,7 +119,7 @@ export class GeolocationService {
    * Delay helper
    */
   private delay(ms: number): Promise<void> {
-    return new Promise(resolve => setTimeout(resolve, ms));
+    return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
   /**
@@ -164,16 +168,16 @@ export class GeolocationService {
     const countryMap: Record<string, string> = {
       'United States': 'US',
       'United Kingdom': 'GB',
-      'Australia': 'AU',
-      'Canada': 'CA',
-      'Germany': 'DE',
-      'France': 'FR',
-      'Japan': 'JP',
-      'Singapore': 'SG',
-      'India': 'IN',
-      'Indonesia': 'ID',
-      'Netherlands': 'NL',
-      'Brazil': 'BR',
+      Australia: 'AU',
+      Canada: 'CA',
+      Germany: 'DE',
+      France: 'FR',
+      Japan: 'JP',
+      Singapore: 'SG',
+      India: 'IN',
+      Indonesia: 'ID',
+      Netherlands: 'NL',
+      Brazil: 'BR',
     };
 
     return countryMap[country];
@@ -185,7 +189,7 @@ export class GeolocationService {
   parseIPFromLog(logLine: string): string | null {
     // Match IP address patterns
     const ipMatch = logLine.match(/(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})/);
-    return ipMatch ? ipMatch[1] : null;
+    return ipMatch ? (ipMatch[1] ?? null) : null;
   }
 
   /**
@@ -202,13 +206,13 @@ export class GeolocationService {
       /^fe80:/,
     ];
 
-    return privateRanges.some(range => range.test(ip));
+    return privateRanges.some((range) => range.test(ip));
   }
 
   /**
    * Get cached geolocation from access logs
    */
-  getCachedLocation(ip: string): GeolocationData | null {
+  getCachedLocation(_ip: string): GeolocationData | null {
     // This would be implemented by querying the database
     // for existing geolocation data for this IP
     return null;
@@ -228,5 +232,5 @@ export function getGeolocationService(): GeolocationService {
 export const geolocationService = new Proxy({} as GeolocationService, {
   get(target, prop) {
     return getGeolocationService()[prop as keyof GeolocationService];
-  }
+  },
 });

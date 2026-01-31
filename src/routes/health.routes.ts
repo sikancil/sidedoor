@@ -1,4 +1,4 @@
-import { Elysia, t } from 'elysia';
+import { Elysia } from 'elysia';
 import { getDatabase } from '../config/database';
 import { getSSHService } from '../services/ssh.service';
 
@@ -17,7 +17,7 @@ export const healthRoutes = new Elysia()
       const db = getDatabase();
       db.query('SELECT 1').get();
       checks.database = true;
-    } catch (error) {
+    } catch {
       checks.database = false;
     }
 
@@ -25,14 +25,14 @@ export const healthRoutes = new Elysia()
     try {
       const sshStatus = await getSSHService().checkSSHStatus();
       checks.ssh = sshStatus.success && sshStatus.stdout === 'active';
-    } catch (error) {
+    } catch {
       checks.ssh = false;
     }
 
     // Workers check (basic)
     checks.workers = true; // Workers are created on-demand
 
-    const healthy = Object.values(checks).every(v => v === true);
+    const healthy = Object.values(checks).every((v) => v === true);
 
     return {
       status: healthy ? 'healthy' : 'unhealthy',

@@ -13,7 +13,7 @@ export class RecoveryService {
 
     // Find certificates without timers
     const certsNeedingTimers = activeCerts.filter(
-      cert => !timers.includes(`sidedoor-${cert.username}`)
+      (cert) => !timers.includes(`sidedoor-${cert.username}`)
     );
 
     if (certsNeedingTimers.length === 0) {
@@ -24,7 +24,7 @@ export class RecoveryService {
     console.log(`Recovering timers for ${certsNeedingTimers.length} active certificates...`);
 
     await getSystemdService().recoverActiveTimers(
-      certsNeedingTimers.map(cert => ({
+      certsNeedingTimers.map((cert) => ({
         username: cert.username,
         expires_at: cert.expires_at,
       }))
@@ -116,7 +116,7 @@ export class RecoveryService {
     // Check for timers without certificates
     for (const timer of timers) {
       const username = timer.replace('sidedoor-', '');
-      const cert = activeCerts.find(c => c.username === username);
+      const cert = activeCerts.find((c) => c.username === username);
       if (!cert) {
         issues.push({
           type: 'orphaned_timer',
@@ -149,9 +149,9 @@ export class RecoveryService {
         const userExists = await getSSHService().userExists(cert.username);
         return userExists ? 1 : 0;
       })
-    ).then(counts => counts.reduce((a, b) => a + b, 0));
+    ).then((counts) => counts.reduce<number>((a, b) => a + b, 0));
 
-    const expiredNotRevoked = activeCerts.filter(cert => {
+    const expiredNotRevoked = activeCerts.filter((cert) => {
       const expiresAt = new Date(cert.expires_at);
       return expiresAt < now;
     }).length;
@@ -178,5 +178,5 @@ export function getRecoveryService(): RecoveryService {
 export const recoveryService = new Proxy({} as RecoveryService, {
   get(target, prop) {
     return getRecoveryService()[prop as keyof RecoveryService];
-  }
+  },
 });

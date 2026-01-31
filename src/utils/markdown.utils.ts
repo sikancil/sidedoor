@@ -1,5 +1,5 @@
-import { Certificate } from '../models/Certificate.model';
-import { parsePermissions, calculateExpiresAt } from './crypto.utils';
+import type { Certificate } from '../models/Certificate.model';
+import { parsePermissions } from './crypto.utils';
 
 export interface ReadmeTemplateData {
   certificate: Certificate;

@@ -81,17 +81,23 @@ export const MAX_TTL = 86400; // 24 hours
 export const DEFAULT_TTL = 600; // 10 minutes
 
 // Permission types
-export const PERMISSION_TYPES = ['sftp', 'ssh', 'read-only', 'read-write', 'read-write-modify'] as const;
-export type PermissionType = typeof PERMISSION_TYPES[number];
+export const PERMISSION_TYPES = [
+  'sftp',
+  'ssh',
+  'read-only',
+  'read-write',
+  'read-write-modify',
+] as const;
+export type PermissionType = (typeof PERMISSION_TYPES)[number];
 
 // Certificate status
 export const CERTIFICATE_STATUS = ['active', 'expired', 'revoked'] as const;
-export type CertificateStatus = typeof CERTIFICATE_STATUS[number];
+export type CertificateStatus = (typeof CERTIFICATE_STATUS)[number];
 
 // Access log status
 export const ACCESS_LOG_STATUS = ['success', 'failed'] as const;
-export type AccessLogStatus = typeof ACCESS_LOG_STATUS[number];
+export type AccessLogStatus = (typeof ACCESS_LOG_STATUS)[number];
 
 // Response types
 export const RESPONSE_TYPES = ['md', 'cert'] as const;
-export type ResponseType = typeof RESPONSE_TYPES[number];
+export type ResponseType = (typeof RESPONSE_TYPES)[number];

@@ -5,8 +5,8 @@ import { DEFAULT_CONFIG } from '../config/constants';
  * Admin authentication middleware for protected admin endpoints
  * Uses CRON_SECRET environment variable for authentication
  */
-export const requireAdminAuth = new Elysia({ name: 'admin-auth' })
-  .derive(async ({ request, set }) => {
+export const requireAdminAuth = new Elysia({ name: 'admin-auth' }).derive(
+  async ({ request, set }) => {
     const authHeader = request.headers.get('authorization');
     const cronSecret = process.env.CRON_SECRET || DEFAULT_CONFIG.cronSecret;
 
@@ -26,14 +26,15 @@ export const requireAdminAuth = new Elysia({ name: 'admin-auth' })
       isAdmin: true,
       adminToken: token,
     };
-  });
+  }
+);
 
 /**
  * Optional admin auth - sets admin flag but doesn't require it
  * Used for endpoints that work for both authenticated and unauthenticated requests
  */
-export const optionalAdminAuth = new Elysia({ name: 'optional-admin-auth' })
-  .derive(({ request }) => {
+export const optionalAdminAuth = new Elysia({ name: 'optional-admin-auth' }).derive(
+  ({ request }) => {
     const authHeader = request.headers.get('authorization');
     const cronSecret = process.env.CRON_SECRET || DEFAULT_CONFIG.cronSecret;
 
@@ -52,7 +53,8 @@ export const optionalAdminAuth = new Elysia({ name: 'optional-admin-auth' })
       isAdmin,
       adminToken,
     };
-  });
+  }
+);
 
 /**
  * Check if request is from systemd timer

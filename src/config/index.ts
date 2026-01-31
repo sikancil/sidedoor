@@ -92,7 +92,9 @@ export async function loadConfig(configPath: string = DEFAULT_CONFIG.configPath)
     // Generate token if not set (development mode)
     if (!config.authenticatorToken) {
       config.authenticatorToken = generateDefaultToken();
-      console.warn('⚠️  WARNING: Using auto-generated authenticator token. Set a secure token in production!');
+      console.warn(
+        '⚠️  WARNING: Using auto-generated authenticator token. Set a secure token in production!'
+      );
     }
 
     return config;
@@ -126,7 +128,9 @@ export async function reloadConfig(configPath?: string): Promise<Config> {
  * Auto-recreate config if missing with fallback to defaults
  * This is useful for production deployments where config may not exist yet
  */
-export async function ensureConfig(configPath: string = DEFAULT_CONFIG.configPath): Promise<Config> {
+export async function ensureConfig(
+  configPath: string = DEFAULT_CONFIG.configPath
+): Promise<Config> {
   try {
     return await loadConfig(configPath);
   } catch (error) {
@@ -164,7 +168,7 @@ async function createDefaultConfig(configPath: string): Promise<void> {
     defaultTtl: 600,
     user: {
       name: 'sidedoor',
-      group: 'www-data'
+      group: 'www-data',
     },
     _generated: new Date().toISOString(),
     _autoCreated: true,

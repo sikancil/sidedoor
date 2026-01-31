@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import { getDatabase } from '../config/database';
-import { CertificateStatus } from '../config/constants';
+import type { CertificateStatus } from '../config/constants';
 
 export interface Certificate {
   id: string;
@@ -79,15 +79,17 @@ export class CertificateModel {
     return randomBytes(6).toString('hex');
   }
 
-  create(data: Omit<Certificate, 'id' | 'created_at'>): Certificate {
+  create(data: Omit<Certificate, 'id' | 'created_at'> & { id?: string }): Certificate {
     const id = data.id || this.generateId();
     const created_at = new Date().toISOString();
-    const permissions = typeof data.permissions === 'string'
-      ? data.permissions
-      : JSON.stringify(data.permissions);
-    const mountPoints = typeof data.mount_points === 'string'
-      ? data.mount_points
-      : (data.mount_points ? JSON.stringify(data.mount_points) : null);
+    const permissions =
+      typeof data.permissions === 'string' ? data.permissions : JSON.stringify(data.permissions);
+    const mountPoints =
+      typeof data.mount_points === 'string'
+        ? data.mount_points
+        : data.mount_points
+          ? JSON.stringify(data.mount_points)
+          : null;
 
     const stmt = this.db.prepare(`
       INSERT INTO certificates (
@@ -148,7 +150,11 @@ export class CertificateModel {
     return stmt.get(timerName) as Certificate | null;
   }
 
-  findAll(options?: { limit?: number; offset?: number; status?: CertificateStatus }): Certificate[] {
+  findAll(options?: {
+    limit?: number;
+    offset?: number;
+    status?: CertificateStatus;
+  }): Certificate[] {
     let query = 'SELECT * FROM certificates';
     const params: unknown[] = [];
 
@@ -169,10 +175,13 @@ export class CertificateModel {
     }
 
     const stmt = this.db.prepare(query);
-    return stmt.all(...params) as Certificate[];
+    return stmt.all(...(params as string[] | number[] | (string | number)[])) as Certificate[];
   }
 
-  update(id: string, data: Partial<Omit<Certificate, 'id' | 'username' | 'created_at'>>): Certificate | null {
+  update(
+    id: string,
+    data: Partial<Omit<Certificate, 'id' | 'username' | 'created_at'>>
+  ): Certificate | null {
     const updates: string[] = [];
     const params: unknown[] = [];
 
@@ -194,7 +203,7 @@ export class CertificateModel {
       WHERE id = ?
     `);
 
-    stmt.run(...params);
+    stmt.run(...(params as string[] | number[] | (string | number)[]));
     return this.findById(id);
   }
 
@@ -223,7 +232,12 @@ export class CertificateModel {
   }
 
   // Access Log methods
-  createAccessLog(data: Omit<AccessLog, 'id' | 'timestamp' | 'username'> & { timestamp?: string; username?: string }): AccessLog {
+  createAccessLog(
+    data: Omit<AccessLog, 'id' | 'timestamp' | 'username'> & {
+      timestamp?: string;
+      username?: string;
+    }
+  ): AccessLog {
     const id = randomBytes(8).toString('hex');
     const timestamp = data.timestamp || new Date().toISOString();
     const username = data.username || 'unknown';
@@ -254,14 +268,19 @@ export class CertificateModel {
   }
 
   // Cleanup Log methods
-  createCleanupLog(data: Omit<CleanupLog, 'id' | 'timestamp'> & { timestamp?: string }): CleanupLog {
+  createCleanupLog(
+    data: Omit<CleanupLog, 'id' | 'timestamp'> & { timestamp?: string }
+  ): CleanupLog {
     const id = randomBytes(8).toString('hex');
     const timestamp = data.timestamp || new Date().toISOString();
-    const actions = typeof data.actions === 'string' ? data.actions : JSON.stringify(data.actions || []);
-    const errors = typeof data.errors === 'string' ? data.errors : JSON.stringify(data.errors || []);
-    const forensicData = typeof data.forensic_data === 'string'
-      ? data.forensic_data
-      : JSON.stringify(data.forensic_data || {});
+    const actions =
+      typeof data.actions === 'string' ? data.actions : JSON.stringify(data.actions || []);
+    const errors =
+      typeof data.errors === 'string' ? data.errors : JSON.stringify(data.errors || []);
+    const forensicData =
+      typeof data.forensic_data === 'string'
+        ? data.forensic_data
+        : JSON.stringify(data.forensic_data || {});
 
     const stmt = this.db.prepare(`
       INSERT INTO cleanup_logs (
@@ -334,7 +353,17 @@ export class CertificateModel {
     return stmt.all(limit) as AccessLog[];
   }
 
-  batchUpdateGeolocation(updates: Array<{ id: string; country?: string; region?: string; city?: string; lat?: number; lon?: number; isp?: string }>): void {
+  batchUpdateGeolocation(
+    updates: Array<{
+      id: string;
+      country?: string;
+      region?: string;
+      city?: string;
+      lat?: number;
+      lon?: number;
+      isp?: string;
+    }>
+  ): void {
     const stmt = this.db.prepare(`
       UPDATE access_logs
       SET country = ?, region = ?, city = ?, lat = ?, lon = ?, isp = ?
@@ -384,5 +413,5 @@ export function getCertificateModel(): CertificateModel {
 export const certificateModel = new Proxy({} as CertificateModel, {
   get(target, prop) {
     return getCertificateModel()[prop as keyof CertificateModel];
-  }
+  },
 });

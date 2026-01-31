@@ -1,5 +1,4 @@
 import { promises as fs } from 'node:fs';
-import type { SSHCommandResult } from './ssh.service';
 import { getConfig } from '../config';
 
 export interface SystemdTimerConfig {
@@ -26,13 +25,7 @@ export class SystemdService {
     const calendarTime = expiresAt.toISOString();
 
     // Call privileged helper script via sudo
-    const args = [
-      'create-timer',
-      username,
-      calendarTime,
-      cronSecret,
-      apiUrl
-    ];
+    const args = ['create-timer', username, calendarTime, cronSecret, apiUrl];
 
     await this.execHelper(args);
 
@@ -65,8 +58,8 @@ export class SystemdService {
     // Extract timer names from output
     // Matches: sidedoor-n0x + 6 hex chars (e.g., sidedoor-n0x1a2b3c.timer)
     return lines
-      .filter(line => line.includes('sidedoor-'))
-      .map(line => {
+      .filter((line) => line.includes('sidedoor-'))
+      .map((line) => {
         const match = line.match(/(sidedoor-n0x[a-f0-9]+)\.timer/);
         return match ? match[1] : null;
       })
@@ -87,8 +80,8 @@ export class SystemdService {
     const output = await new Response(proc.stdout).text();
     const lines = output.split('\n');
 
-    const isActive = lines.some(line => line.startsWith('ActiveState=active'));
-    const nextRunLine = lines.find(line => line.startsWith('NextElapseUSecMonotonic='));
+    const isActive = lines.some((line) => line.startsWith('ActiveState=active'));
+    const nextRunLine = lines.find((line) => line.startsWith('NextElapseUSecMonotonic='));
     const nextRun = nextRunLine?.split('=')[1];
 
     if (!isActive) {
@@ -101,10 +94,12 @@ export class SystemdService {
   /**
    * Recreate timers for active certificates (startup recovery)
    */
-  async recoverActiveTimers(activeCertificates: Array<{
-    username: string;
-    expires_at: string;
-  }>): Promise<void> {
+  async recoverActiveTimers(
+    activeCertificates: Array<{
+      username: string;
+      expires_at: string;
+    }>
+  ): Promise<void> {
     const recovered: string[] = [];
     const failed: Array<{ username: string; error: string }> = [];
 
@@ -203,5 +198,5 @@ export function getSystemdService(): SystemdService {
 export const systemdService = new Proxy({} as SystemdService, {
   get(target, prop) {
     return getSystemdService()[prop as keyof SystemdService];
-  }
+  },
 });

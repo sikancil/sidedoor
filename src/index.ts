@@ -83,28 +83,28 @@ async function start() {
   console.log('Configuring SSH for dynamic users...');
   await getSSHService().configureSSHChroot();
 
-    // Recover timers for active certificates
-    console.log('Recovering active certificate timers...');
-    await getRecoveryService().recoverTimers();
+  // Recover timers for active certificates
+  console.log('Recovering active certificate timers...');
+  await getRecoveryService().recoverTimers();
 
-    // Cleanup orphaned resources
-    console.log('Checking for orphaned resources...');
-    const orphanResult = await getRecoveryService().cleanupOrphans();
-    if (orphanResult.cleaned > 0) {
-      console.log(`Cleaned up ${orphanResult.cleaned} orphaned certificates`);
-    }
-    if (orphanResult.errors.length > 0) {
-      console.warn(`Errors during orphan cleanup: ${orphanResult.errors.join(', ')}`);
-    }
+  // Cleanup orphaned resources
+  console.log('Checking for orphaned resources...');
+  const orphanResult = await getRecoveryService().cleanupOrphans();
+  if (orphanResult.cleaned > 0) {
+    console.log(`Cleaned up ${orphanResult.cleaned} orphaned certificates`);
+  }
+  if (orphanResult.errors.length > 0) {
+    console.warn(`Errors during orphan cleanup: ${orphanResult.errors.join(', ')}`);
+  }
 
-    // Validate system state
-    const stateValidation = await getRecoveryService().validateState();
-    if (!stateValidation.valid) {
-      console.warn(`System state issues detected: ${stateValidation.issues.length} issues found`);
-      stateValidation.issues.forEach(issue => {
-        console.warn(`  - ${issue.type}: ${issue.description}`);
-      });
-    }
+  // Validate system state
+  const stateValidation = await getRecoveryService().validateState();
+  if (!stateValidation.valid) {
+    console.warn(`System state issues detected: ${stateValidation.issues.length} issues found`);
+    stateValidation.issues.forEach((issue) => {
+      console.warn(`  - ${issue.type}: ${issue.description}`);
+    });
+  }
 
   await app.listen(config.port);
 

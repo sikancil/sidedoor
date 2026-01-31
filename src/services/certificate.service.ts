@@ -6,7 +6,7 @@ import { getSSHService } from './ssh.service';
 import { getGeolocationService } from './geolocation.service';
 import { getSystemdService } from './systemd.service';
 import { getConfig } from '../config';
-import { generateUsername, DEFAULT_CONFIG } from '../config/constants';
+import { generateUsername } from '../config/constants';
 
 // Types for certificate creation request
 export interface CertificateCreateRequest {
@@ -54,9 +54,11 @@ export class CertificateService {
    * Each certificate gets a unique dynamic user (n0x###### format, 9 characters) with per-certificate systemd timer
    * Format: n0x + 6 hex chars (e.g., n0x1a2b3c, n0x9f8e7d)
    */
-  async createCertificate(request: CertificateCreateRequest): Promise<CertificateResponse | CertificateResponseWithMarkdown> {
+  async createCertificate(
+    request: CertificateCreateRequest
+  ): Promise<CertificateResponse | CertificateResponseWithMarkdown> {
     // Apply defaults from config for optional fields
-    const directoryPath = request.directoryPath ?? this.config.defaultDirectories[0];
+    const directoryPath = request.directoryPath ?? this.config.defaultDirectories[0] ?? '/srv';
     const permissions = request.permissions ?? Array.from(this.config.defaultPermissions);
     const ttl = request.ttl ?? this.config.defaultTtl;
     const responseType = request.responseType ?? 'md';
@@ -78,7 +80,7 @@ export class CertificateService {
 
     // Create bind mount for target directory
     const mountPoint = directoryPath; // /srv → /home/sftp/n0x1a2b3c/srv
-    await getSSHService().createBindMount(username, directoryPath, mountPoint);
+    await getSSHService().createBindMount(username, directoryPath, mountPoint!);
 
     // Add public key to user's authorized_keys
     await getSSHService().addPublicKey(username, publicKey);
@@ -105,9 +107,9 @@ export class CertificateService {
         status: 'active',
         created_at: new Date().toISOString(),
         expires_at: expiresAtString,
-        authenticator_token: request.authenticatorToken || '',
+        authenticator_token: request.authenticatorToken ?? '',
         public_key: publicKey,
-        private_key_path: privateKeyPath,
+        private_key_path: privateKeyPath!,
       },
       username,
       privateKeyPath: `${username}_ed25519`,
@@ -120,15 +122,14 @@ export class CertificateService {
       id,
       username,
       directory_path: directoryPath,
-      mount_points: JSON.stringify([`/home/sftp/${username}${mountPoint}`]),
+      mount_points: JSON.stringify([`/home/sftp/${username}${mountPoint!}`]),
       permissions: JSON.stringify(permissions),
       ttl,
       status: 'active',
-      created_at: new Date().toISOString(),
       expires_at: expiresAtString,
-      authenticator_token: request.authenticatorToken || '',
+      authenticator_token: request.authenticatorToken ?? '',
       public_key: publicKey,
-      private_key_path: privateKeyPath,
+      private_key_path: privateKeyPath!,
       readme_path: readmePath,
       systemd_timer_name: `sidedoor-${username}`,
       systemd_timer_created_at: new Date().toISOString(),
@@ -161,12 +162,11 @@ export class CertificateService {
 
     // Get unique IPs for batch lookup
     const ips = certificates
-      .map(cert => cert.last_access_ip)
+      .map((cert) => cert.last_access_ip)
       .filter((ip): ip is string => ip != null && !getGeolocationService().isPrivateIP(ip));
 
-    const geolocations = ips.length > 0
-      ? await getGeolocationService().getBatchGeolocation(ips)
-      : [];
+    const geolocations =
+      ips.length > 0 ? await getGeolocationService().getBatchGeolocation(ips) : [];
 
     const ipToLocation = new Map<string, string>();
     geolocations.forEach((geo, index) => {
@@ -175,11 +175,9 @@ export class CertificateService {
       }
     });
 
-    return certificates.map(cert => ({
+    return certificates.map((cert) => ({
       ...this.toResponse(cert),
-      lastAccessLocation: cert.last_access_ip
-        ? ipToLocation.get(cert.last_access_ip)
-        : undefined,
+      lastAccessLocation: cert.last_access_ip ? ipToLocation.get(cert.last_access_ip) : undefined,
     }));
   }
 
@@ -196,8 +194,8 @@ export class CertificateService {
 
     // Enrich access logs with geolocation if missing
     const ipsWithoutGeo = accessLogs
-      .filter(log => !log.country && log.ip_address)
-      .map(log => log.ip_address)
+      .filter((log) => !log.country && log.ip_address)
+      .map((log) => log.ip_address)
       .filter((ip): ip is string => !getGeolocationService().isPrivateIP(ip));
 
     if (ipsWithoutGeo.length > 0) {
@@ -208,7 +206,7 @@ export class CertificateService {
           if (!geo || geo.status !== 'success') {
             return null;
           }
-          const log = accessLogs.find(l => l.ip_address === ipsWithoutGeo[index]);
+          const log = accessLogs.find((l) => l.ip_address === ipsWithoutGeo[index]);
           if (!log) {
             return null;
           }
@@ -238,11 +236,14 @@ export class CertificateService {
   /**
    * Update certificate
    */
-  async updateCertificate(id: string, updates: {
-    ttl?: number;
-    permissions?: string[];
-    status?: string;
-  }): Promise<CertificateResponse> {
+  async updateCertificate(
+    id: string,
+    updates: {
+      ttl?: number;
+      permissions?: string[];
+      status?: string;
+    }
+  ): Promise<CertificateResponse> {
     const certificate = getCertificateModel().findById(id);
     if (!certificate) {
       throw new Error(`Certificate not found: ${id}`);
@@ -353,7 +354,11 @@ export class CertificateService {
   /**
    * Generate instructions for README
    */
-  private generateInstructions(directoryPath: string, permissions: string[], username?: string): string {
+  private generateInstructions(
+    directoryPath: string,
+    permissions: string[],
+    username?: string
+  ): string {
     const dirInfo = this.getDirectoryInfo(directoryPath);
     const permInfo = this.getPermissionInfo(permissions);
 
@@ -510,5 +515,5 @@ export function getCertificateService(): CertificateService {
 export const certificateService = new Proxy({} as CertificateService, {
   get(target, prop) {
     return getCertificateService()[prop as keyof CertificateService];
-  }
+  },
 });

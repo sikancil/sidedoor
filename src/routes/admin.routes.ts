@@ -2,7 +2,7 @@ import { Elysia, t } from 'elysia';
 import { getCertificateModel } from '../models/Certificate.model';
 import { getSSHService } from '../services/ssh.service';
 import { getSystemdService } from '../services/systemd.service';
-import { requireAdminAuth, isSystemdTrigger } from '../middleware/admin-auth.middleware';
+import { requireAdminAuth } from '../middleware/admin-auth.middleware';
 
 export const adminRoutes = new Elysia({ prefix: '/admin' })
   .use(requireAdminAuth)
@@ -11,122 +11,126 @@ export const adminRoutes = new Elysia({ prefix: '/admin' })
    * Cleanup certificate (triggered by systemd timer or manual)
    * POST /admin/cleanup/:username
    */
-  .post('/cleanup/:username', async ({ params, headers, set }) => {
-    const startTime = Date.now();
-    const username = params.username;
-    const triggeredBy = headers.get('x-trigger') || 'manual';
+  .post(
+    '/cleanup/:username',
+    async ({ params, request, set }) => {
+      const startTime = Date.now();
+      const username = params.username;
+      const triggeredBy = request.headers.get('x-trigger') ?? 'manual';
 
-    // Find certificate by username
-    const cert = getCertificateModel().findByUsername(username);
-    if (!cert) {
-      set.status = 404;
-      return {
-        success: false,
-        error: `Certificate not found: ${username}`,
-        username,
-      };
-    }
+      // Find certificate by username
+      const cert = getCertificateModel().findByUsername(username);
+      if (!cert) {
+        set.status = 404;
+        return {
+          success: false,
+          error: `Certificate not found: ${username}`,
+          username,
+        };
+      }
 
-    const actions: string[] = [];
-    const errors: string[] = [];
+      const actions: string[] = [];
+      const errors: string[] = [];
 
-    // 1. Delete systemd timer if exists
-    try {
-      await getSystemdService().deleteCleanupTimer(username);
-      actions.push('Deleted systemd timer');
-    } catch (error) {
-      errors.push(`Failed to delete timer: ${(error as Error).message}`);
-    }
-
-    // 2. Unmount bind mounts
-    const mountPoints = JSON.parse(cert.mount_points || '[]');
-    for (const mount of mountPoints) {
+      // 1. Delete systemd timer if exists
       try {
-        const result = await getSSHService().unmountBindMount(mount);
-        if (result.success) {
-          actions.push(`Unmounted: ${mount}`);
+        await getSystemdService().deleteCleanupTimer(username);
+        actions.push('Deleted systemd timer');
+      } catch (error) {
+        errors.push(`Failed to delete timer: ${(error as Error).message}`);
+      }
+
+      // 2. Unmount bind mounts
+      const mountPoints = JSON.parse(cert.mount_points || '[]');
+      for (const mount of mountPoints) {
+        try {
+          const result = await getSSHService().unmountBindMount(mount);
+          if (result.success) {
+            actions.push(`Unmounted: ${mount}`);
+          } else {
+            errors.push(`Failed to unmount ${mount}: ${result.stderr}`);
+          }
+        } catch (error) {
+          errors.push(`Failed to unmount ${mount}: ${(error as Error).message}`);
+        }
+      }
+
+      // 3. Remove SSH key from authorized_keys
+      try {
+        const sshResult = await getSSHService().removePublicKey(cert.username, cert.public_key);
+        if (sshResult.success) {
+          actions.push('Removed SSH key from authorized_keys');
         } else {
-          errors.push(`Failed to unmount ${mount}: ${result.stderr}`);
+          errors.push(`Failed to remove SSH key: ${sshResult.stderr}`);
         }
       } catch (error) {
-        errors.push(`Failed to unmount ${mount}: ${(error as Error).message}`);
+        errors.push(`Failed to remove SSH key: ${(error as Error).message}`);
       }
-    }
 
-    // 3. Remove SSH key from authorized_keys
-    try {
-      const sshResult = await getSSHService().removePublicKey(cert.username, cert.public_key);
-      if (sshResult.success) {
-        actions.push('Removed SSH key from authorized_keys');
-      } else {
-        errors.push(`Failed to remove SSH key: ${sshResult.stderr}`);
+      // 4. Delete user and chroot
+      try {
+        const userResult = await getSSHService().deleteUserWithChroot(cert.username);
+        if (userResult.success) {
+          actions.push(`Deleted user: ${cert.username}`);
+          actions.push(`Removed chroot: /home/sftp/${cert.username}`);
+        } else {
+          errors.push(`Failed to delete user: ${userResult.stderr}`);
+        }
+      } catch (error) {
+        errors.push(`Failed to delete user: ${(error as Error).message}`);
       }
-    } catch (error) {
-      errors.push(`Failed to remove SSH key: ${(error as Error).message}`);
+
+      // 5. Update database
+      const now = new Date().toISOString();
+      getCertificateModel().update(cert.id, {
+        status: 'revoked',
+        revoked_at: now,
+        revoked_by: triggeredBy,
+        user_deleted: actions.some((a) => a.includes('Deleted user')) ? 1 : 0,
+        chroot_removed: actions.some((a) => a.includes('Removed chroot')) ? 1 : 0,
+        cleanup_log: JSON.stringify({ actions, errors }),
+      });
+
+      // 6. Log forensic data
+      const duration = Date.now() - startTime;
+      const cleanupRunId = `cleanup-${username}-${Date.now()}`;
+      const forensic = {
+        username,
+        certificate_id: cert.id,
+        timestamp: now,
+        triggered_by: triggeredBy,
+        actions,
+        errors,
+        duration_ms: duration,
+        systemd_triggered: triggeredBy === 'systemd',
+      };
+
+      getCertificateModel().createCleanupLog({
+        cleanup_run_id: cleanupRunId,
+        certificate_id: cert.id,
+        username,
+        triggered_by: triggeredBy,
+        actions: JSON.stringify(actions),
+        errors: JSON.stringify(errors),
+        duration_ms: duration,
+        forensic_data: JSON.stringify(forensic),
+      });
+
+      return {
+        success: true,
+        username,
+        actions,
+        errors,
+        forensic,
+        duration_ms: duration,
+      };
+    },
+    {
+      params: t.Object({
+        username: t.String(),
+      }),
     }
-
-    // 4. Delete user and chroot
-    try {
-      const userResult = await getSSHService().deleteUserWithChroot(cert.username);
-      if (userResult.success) {
-        actions.push(`Deleted user: ${cert.username}`);
-        actions.push(`Removed chroot: /home/sftp/${cert.username}`);
-      } else {
-        errors.push(`Failed to delete user: ${userResult.stderr}`);
-      }
-    } catch (error) {
-      errors.push(`Failed to delete user: ${(error as Error).message}`);
-    }
-
-    // 5. Update database
-    const now = new Date().toISOString();
-    getCertificateModel().update(cert.id, {
-      status: 'revoked',
-      revoked_at: now,
-      revoked_by: triggeredBy,
-      user_deleted: actions.some(a => a.includes('Deleted user')) ? 1 : 0,
-      chroot_removed: actions.some(a => a.includes('Removed chroot')) ? 1 : 0,
-      cleanup_log: JSON.stringify({ actions, errors }),
-    });
-
-    // 6. Log forensic data
-    const duration = Date.now() - startTime;
-    const cleanupRunId = `cleanup-${username}-${Date.now()}`;
-    const forensic = {
-      username,
-      certificate_id: cert.id,
-      timestamp: now,
-      triggered_by: triggeredBy,
-      actions,
-      errors,
-      duration_ms: duration,
-      systemd_triggered: triggeredBy === 'systemd',
-    };
-
-    getCertificateModel().createCleanupLog({
-      cleanup_run_id: cleanupRunId,
-      certificate_id: cert.id,
-      username,
-      triggered_by: triggeredBy,
-      actions: JSON.stringify(actions),
-      errors: JSON.stringify(errors),
-      duration_ms: duration,
-      forensic_data: JSON.stringify(forensic),
-    });
-
-    return {
-      success: true,
-      username,
-      actions,
-      errors,
-      forensic,
-      duration_ms: duration,
-    };
-  }, {
-    params: t.Object({
-      username: t.String(),
-    }),
-  })
+  )
 
   /**
    * List active certificates with timers
@@ -139,7 +143,7 @@ export const adminRoutes = new Elysia({ prefix: '/admin' })
     return {
       success: true,
       count: certificates.length,
-      data: certificates.map(cert => ({
+      data: certificates.map((cert) => ({
         id: cert.id,
         username: cert.username,
         expires_at: cert.expires_at,
@@ -170,7 +174,7 @@ export const adminRoutes = new Elysia({ prefix: '/admin' })
       success: true,
       username: params.username,
       count: logs.length,
-      logs: logs.map(log => ({
+      logs: logs.map((log) => ({
         id: log.id,
         cleanup_run_id: log.cleanup_run_id,
         timestamp: log.timestamp,
@@ -193,7 +197,7 @@ export const adminRoutes = new Elysia({ prefix: '/admin' })
     const timerDetails = await Promise.all(
       timers.map(async (timer) => {
         const username = timer.replace('sidedoor-', '');
-        const cert = certificates.find(c => c.username === username);
+        const cert = certificates.find((c) => c.username === username);
         const status = await getSystemdService().getTimerStatus(username);
 
         return {
@@ -223,10 +227,10 @@ export const adminRoutes = new Elysia({ prefix: '/admin' })
 
     // Check for orphaned resources (certs without timers or timers without certs)
     const orphanedCerts = activeCerts.filter(
-      cert => !timers.includes(`sidedoor-${cert.username}`)
+      (cert) => !timers.includes(`sidedoor-${cert.username}`)
     );
     const orphanedTimers = timers.filter(
-      timer => !activeCerts.find(cert => cert.username === timer.replace('sidedoor-', ''))
+      (timer) => !activeCerts.find((cert) => cert.username === timer.replace('sidedoor-', ''))
     );
 
     return {
@@ -237,8 +241,12 @@ export const adminRoutes = new Elysia({ prefix: '/admin' })
       orphaned_certificates: orphanedCerts.length,
       orphaned_timers: orphanedTimers.length,
       warnings: [
-        ...(orphanedCerts.length > 0 ? [`${orphanedCerts.length} certificates without timers`] : []),
-        ...(orphanedTimers.length > 0 ? [`${orphanedTimers.length} timers without certificates`] : []),
+        ...(orphanedCerts.length > 0
+          ? [`${orphanedCerts.length} certificates without timers`]
+          : []),
+        ...(orphanedTimers.length > 0
+          ? [`${orphanedTimers.length} timers without certificates`]
+          : []),
       ],
     };
   });

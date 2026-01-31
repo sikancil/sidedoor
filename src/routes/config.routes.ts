@@ -1,5 +1,5 @@
 import { Elysia, t } from 'elysia';
-import { getConfig, reloadConfig, ensureConfig, DEFAULT_CONFIG } from '../config';
+import { getConfig, reloadConfig } from '../config';
 import { requireAdminAuth } from '../middleware/admin-auth.middleware';
 import { promises as fs } from 'node:fs';
 
@@ -36,97 +36,101 @@ export const configRoutes = new Elysia({ prefix: '/admin/config' })
    * Update configuration (partial update)
    * PATCH /admin/config
    */
-  .patch('/', async ({ body, set }) => {
-    const config = getConfig();
-    const configPath = config.configPath;
+  .patch(
+    '/',
+    async ({ body, set }) => {
+      const config = getConfig();
+      const configPath = config.configPath;
 
-    // Read current config
-    const content = await fs.readFile(configPath, 'utf-8');
-    const currentConfig = JSON.parse(content);
+      // Read current config
+      const content = await fs.readFile(configPath, 'utf-8');
+      const currentConfig = JSON.parse(content);
 
-    // Merge updates
-    const updatedConfig = {
-      ...currentConfig,
-      ...body,
-      _updated: new Date().toISOString(),
-    };
+      // Merge updates
+      const updatedConfig = {
+        ...currentConfig,
+        ...body,
+        _updated: new Date().toISOString(),
+      };
 
-    // Validate ports
-    if (updatedConfig.port !== undefined) {
-      if (updatedConfig.port < 1 || updatedConfig.port > 65535) {
-        set.status = 400;
-        return { success: false, error: 'Invalid API port. Must be between 1-65535.' };
+      // Validate ports
+      if (updatedConfig.port !== undefined) {
+        if (updatedConfig.port < 1 || updatedConfig.port > 65535) {
+          set.status = 400;
+          return { success: false, error: 'Invalid API port. Must be between 1-65535.' };
+        }
       }
-    }
-    if (updatedConfig.sshPort !== undefined) {
-      if (updatedConfig.sshPort < 1 || updatedConfig.sshPort > 65535) {
-        set.status = 400;
-        return { success: false, error: 'Invalid SSH port. Must be between 1-65535.' };
+      if (updatedConfig.sshPort !== undefined) {
+        if (updatedConfig.sshPort < 1 || updatedConfig.sshPort > 65535) {
+          set.status = 400;
+          return { success: false, error: 'Invalid SSH port. Must be between 1-65535.' };
+        }
       }
-    }
 
-    // Write updated config atomically
-    const tmpPath = `${configPath}.tmp`;
-    await fs.writeFile(tmpPath, JSON.stringify(updatedConfig, null, 2));
-    await fs.rename(tmpPath, configPath);
+      // Write updated config atomically
+      const tmpPath = `${configPath}.tmp`;
+      await fs.writeFile(tmpPath, JSON.stringify(updatedConfig, null, 2));
+      await fs.rename(tmpPath, configPath);
 
-    // Check if restart is needed (port changes)
-    const needsRestart =
-      (updatedConfig.port !== undefined && updatedConfig.port !== currentConfig.port) ||
-      (updatedConfig.sshPort !== undefined && updatedConfig.sshPort !== currentConfig.sshPort);
+      // Check if restart is needed (port changes)
+      const needsRestart =
+        (updatedConfig.port !== undefined && updatedConfig.port !== currentConfig.port) ||
+        (updatedConfig.sshPort !== undefined && updatedConfig.sshPort !== currentConfig.sshPort);
 
-    if (needsRestart) {
-      // AUTOMATED: Trigger service restart via systemd
-      try {
-        // Reload config in memory first
-        await reloadConfig(configPath);
+      if (needsRestart) {
+        // AUTOMATED: Trigger service restart via systemd
+        try {
+          // Reload config in memory first
+          await reloadConfig(configPath);
 
-        // Trigger systemd restart (background, non-blocking)
-        const { execSync } = require('node:child_process');
-        execSync('systemctl reload-or-restart sidedoor.service &', { stdio: 'pipe' });
+          // Trigger systemd restart (background, non-blocking)
+          const { execSync } = require('node:child_process');
+          execSync('systemctl reload-or-restart sidedoor.service &', { stdio: 'pipe' });
 
-        return {
-          success: true,
-          message: 'Configuration updated. Service restart initiated.',
-          restartScheduled: true,
-          config: {
-            port: updatedConfig.port,
-            sshPort: updatedConfig.sshPort,
-          },
-          warning: 'Service will restart momentarily. Existing connections may be interrupted.',
-        };
-      } catch (error) {
-        return {
-          success: true,
-          message: 'Configuration updated. Manual restart required.',
-          restartFailed: true,
-          error: (error as Error).message,
-          hint: 'Run: sudo systemctl restart sidedoor.service',
-        };
+          return {
+            success: true,
+            message: 'Configuration updated. Service restart initiated.',
+            restartScheduled: true,
+            config: {
+              port: updatedConfig.port,
+              sshPort: updatedConfig.sshPort,
+            },
+            warning: 'Service will restart momentarily. Existing connections may be interrupted.',
+          };
+        } catch (error) {
+          return {
+            success: true,
+            message: 'Configuration updated. Manual restart required.',
+            restartFailed: true,
+            error: (error as Error).message,
+            hint: 'Run: sudo systemctl restart sidedoor.service',
+          };
+        }
       }
+
+      // Reload config (no restart needed)
+      await reloadConfig(configPath);
+
+      return {
+        success: true,
+        message: 'Configuration updated and reloaded.',
+        restartRequired: false,
+        config: {
+          port: updatedConfig.port,
+          sshPort: updatedConfig.sshPort,
+        },
+      };
+    },
+    {
+      body: t.Object({
+        port: t.Optional(t.Number()),
+        sshPort: t.Optional(t.Number()),
+        defaultDirectories: t.Optional(t.Array(t.String())),
+        defaultPermissions: t.Optional(t.Array(t.String())),
+        defaultTtl: t.Optional(t.Number()),
+      }),
     }
-
-    // Reload config (no restart needed)
-    await reloadConfig(configPath);
-
-    return {
-      success: true,
-      message: 'Configuration updated and reloaded.',
-      restartRequired: false,
-      config: {
-        port: updatedConfig.port,
-        sshPort: updatedConfig.sshPort,
-      },
-    };
-  }, {
-    body: t.Object({
-      port: t.Optional(t.Number()),
-      sshPort: t.Optional(t.Number()),
-      defaultDirectories: t.Optional(t.Array(t.String())),
-      defaultPermissions: t.Optional(t.Array(t.String())),
-      defaultTtl: t.Optional(t.Number()),
-    }),
-  })
+  )
 
   /**
    * Reload configuration
@@ -163,13 +167,15 @@ export const configRoutes = new Elysia({ prefix: '/admin/config' })
       }
 
       // Check SSH port
-      const sshRule = ufwStatus.includes(`${config.sshPort}/tcp`) || ufwStatus.includes(`${config.sshPort} `);
+      const sshRule =
+        ufwStatus.includes(`${config.sshPort}/tcp`) || ufwStatus.includes(`${config.sshPort} `);
       if (!sshRule && isActive) {
         issues.push(`SSH port ${config.sshPort} not allowed in UFW`);
       }
 
       // Check API port
-      const apiRule = ufwStatus.includes(`${config.port}/tcp`) || ufwStatus.includes(`${config.port} `);
+      const apiRule =
+        ufwStatus.includes(`${config.port}/tcp`) || ufwStatus.includes(`${config.port} `);
       if (!apiRule && isActive) {
         issues.push(`API port ${config.port} not allowed in UFW`);
       }

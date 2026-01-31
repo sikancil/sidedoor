@@ -30,9 +30,14 @@ export function getDatabase(): Database {
 
 function initializeSchema(database: Database): void {
   // Check if we need to run migration
-  const hasNewColumns = database.prepare(`
+  const hasNewColumns = database
+    .prepare(
+      `
     PRAGMA table_info(certificates)
-  `).all().some((row: any) => row.name === 'mount_points');
+  `
+    )
+    .all()
+    .some((row: any) => row.name === 'mount_points');
 
   if (!hasNewColumns) {
     // Run migration for dynamic users

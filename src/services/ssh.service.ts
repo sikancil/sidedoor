@@ -1,7 +1,6 @@
 import { promises as fs } from 'node:fs';
 import { SSH_CONFIG_PATH } from '../config/constants';
 import { getConfig } from '../config';
-import { getSystemdService } from './systemd.service';
 
 export interface SSHCommandResult {
   success: boolean;
@@ -93,9 +92,7 @@ export class SSHService {
     await chmodProc.exited;
 
     // Write public key to authorized_keys
-    const writeProc = Bun.spawn([
-      'sudo', 'tee', authKeysFile
-    ], {
+    const writeProc = Bun.spawn(['sudo', 'tee', authKeysFile], {
       stdin: new TextEncoder().encode(`${publicKey}\n`),
       stdout: 'pipe',
       stderr: 'pipe',
@@ -103,10 +100,13 @@ export class SSHService {
     await writeProc.exited;
 
     // Set authorized_keys ownership (must be done after writing)
-    const authKeysChownProc = Bun.spawn(['sudo', 'chown', `${username}:${username}`, authKeysFile], {
-      stdout: 'pipe',
-      stderr: 'pipe',
-    });
+    const authKeysChownProc = Bun.spawn(
+      ['sudo', 'chown', `${username}:${username}`, authKeysFile],
+      {
+        stdout: 'pipe',
+        stderr: 'pipe',
+      }
+    );
     await authKeysChownProc.exited;
 
     // Set authorized_keys permissions
@@ -134,15 +134,13 @@ export class SSHService {
     }
 
     const lines = content.split('\n');
-    const filtered = lines.filter(line => {
+    const filtered = lines.filter((line) => {
       const key = line.trim().split(' ').slice(1).join(' ');
       return key !== publicKey.trim();
     });
 
     // Write back
-    const writeProc = Bun.spawn([
-      'sudo', 'tee', authKeysFile
-    ], {
+    const writeProc = Bun.spawn(['sudo', 'tee', authKeysFile], {
       stdin: new TextEncoder().encode(filtered.join('\n')),
       stdout: 'pipe',
       stderr: 'pipe',
@@ -328,9 +326,7 @@ export class SSHService {
     await mkdirProc.exited;
 
     // Create bind mount
-    const mountProc = Bun.spawn([
-      'sudo', 'mount', '--bind', sourcePath, fullMountPoint
-    ], {
+    const mountProc = Bun.spawn(['sudo', 'mount', '--bind', sourcePath, fullMountPoint], {
       stdout: 'pipe',
       stderr: 'pipe',
     });
@@ -386,13 +382,17 @@ export class SSHService {
       stderr: 'pipe',
     });
     const mounts = await new Response(mountProc.stdout).text();
-    const mountLines = mounts.split('\n').filter(line => line.trim() && line.includes(chrootPath));
+    const mountLines = mounts
+      .split('\n')
+      .filter((line) => line.trim() && line.includes(chrootPath));
 
     for (const mountLine of mountLines) {
       const parts = mountLine.split(/\s+/);
       if (parts.length > 2) {
         const mountPoint = parts[2];
-        await this.unmountBindMount(mountPoint);
+        if (mountPoint) {
+          await this.unmountBindMount(mountPoint);
+        }
       }
     }
 
@@ -457,12 +457,12 @@ Match User n0x*
     const lines = output.split('\n');
 
     return lines
-      .filter(line => line.includes(chrootPath))
-      .map(line => {
+      .filter((line) => line.includes(chrootPath))
+      .map((line) => {
         const parts = line.split(/\s+/);
-        return parts.length > 2 ? parts[2] : '';
+        return parts.length > 2 ? (parts[2] ?? '') : '';
       })
-      .filter(mount => mount.length > 0);
+      .filter((mount): mount is string => mount.length > 0);
   }
 }
 
@@ -479,5 +479,5 @@ export function getSSHService(): SSHService {
 export const sshService = new Proxy({} as SSHService, {
   get(target, prop) {
     return getSSHService()[prop as keyof SSHService];
-  }
+  },
 });
