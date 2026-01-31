@@ -42,7 +42,7 @@ Arguments:
   IP_ADDRESS    The IP address of the droplet to remove from known_hosts
 
 Example:
-  $(basename "$0") 152.42.235.135
+  $(basename "$0") xxx.xxx.xxx.xxx
 
 EOF
     exit 1

@@ -1,6 +1,6 @@
 # Sidedoor Curl-Based Installer - Test Report
 
-**Droplet IP:** 152.42.235.135
+**Droplet IP:** xxx.xxx.xxx.xxx
 **Test Date:** 2025-01-31
 **Branch:** wizard
 
