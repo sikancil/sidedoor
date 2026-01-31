@@ -48,7 +48,7 @@ log() { echo -e "${GREEN}[TEST]${NC} $1"; }
 warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
 error() { echo -e "${RED}[ERROR]${NC} $1"; }
 info() { echo -e "${CYAN}[INFO]${NC} $1"; }
-phase() { echo -e "${BLUE}═══════════════════════════════════════════════════════════════${NC}"; echo -e "${BLUE}  $1${NC}"; echo -e "${BLUE}═══════════════════════════════════════════════════════════════${NC}"; }
+phase() { echo -e "${BLUE}===============================================================${NC}"; echo -e "${BLUE}  $1${NC}"; echo -e "${BLUE}===============================================================${NC}"; }
 
 assert_pass() {
     local description="$1"

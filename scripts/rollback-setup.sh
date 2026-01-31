@@ -98,9 +98,9 @@ error() {
 
 # Confirm before proceeding
 echo ""
-echo -e "${YELLOW}═══════════════════════════════════════════════════════════════${NC}"
+echo -e "${YELLOW}===============================================================${NC}"
 echo -e "${YELLOW}  ⚠️  SIDEDOOR SETUP ROLLBACK ⚠️${NC}"
-echo -e "${YELLOW}═══════════════════════════════════════════════════════════════${NC}"
+echo -e "${YELLOW}===============================================================${NC}"
 echo ""
 echo "This will remove:"
 echo "  - Systemd service: sidedoor.service"
@@ -270,9 +270,9 @@ fi
 
 # ========== SUMMARY ==========
 echo ""
-echo -e "${GREEN}═══════════════════════════════════════════════════════════════${NC}"
+echo -e "${GREEN}===============================================================${NC}"
 echo -e "${GREEN}  ✅ ROLLBACK COMPLETE${NC}"
-echo -e "${GREEN}═══════════════════════════════════════════════════════════════${NC}"
+echo -e "${GREEN}===============================================================${NC}"
 echo ""
 echo "Removed components:"
 echo "  ✓ Systemd service and timers"
