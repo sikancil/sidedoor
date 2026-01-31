@@ -64,7 +64,8 @@ export class CertificateService {
     // Generate dynamic username (n0x + 6 hex chars = 9 total)
     const username = generateUsername(); // e.g., n0x1a2b3c
     const id = username; // Use username as certificate ID
-    const expiresAt = calculateExpiresAt(ttl);
+    const expiresAt = calculateExpiresAt(ttl); // Returns Date object
+    const expiresAtString = expiresAt.toISOString(); // For database storage
     const keysDir = './data/certificates';
 
     await ensureDirectory(keysDir);
@@ -108,7 +109,7 @@ export class CertificateService {
         ttl,
         status: 'active',
         created_at: new Date().toISOString(),
-        expires_at: expiresAt,
+        expires_at: expiresAtString,
         authenticator_token: request.authenticatorToken || '',
         public_key: publicKey,
         private_key_path: privateKeyPath,
@@ -129,7 +130,7 @@ export class CertificateService {
       ttl,
       status: 'active',
       created_at: new Date().toISOString(),
-      expires_at: expiresAt,
+      expires_at: expiresAtString,
       authenticator_token: request.authenticatorToken || '',
       public_key: publicKey,
       private_key_path: privateKeyPath,
@@ -255,7 +256,8 @@ export class CertificateService {
     const updateData: Partial<Record<string, unknown>> = {};
 
     if (updates.ttl !== undefined) {
-      updateData.expires_at = calculateExpiresAt(updates.ttl);
+      const newExpiresAt = calculateExpiresAt(updates.ttl);
+      updateData.expires_at = newExpiresAt.toISOString();
       updateData.ttl = updates.ttl;
     }
 

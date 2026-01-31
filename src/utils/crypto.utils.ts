@@ -84,10 +84,9 @@ export function extractPublicKeyType(publicKey: string): string {
   return parts[0] || 'ssh-ed25519';
 }
 
-export function calculateExpiresAt(ttl: number): string {
-  const now = new Date();
-  now.setSeconds(now.getSeconds() + ttl);
-  return now.toISOString();
+export function calculateExpiresAt(ttl: number): Date {
+  // Calculate expiration time using milliseconds (TTL is in seconds)
+  return new Date(Date.now() + ttl * 1000);
 }
 
 export function isExpired(expiresAt: string): boolean {
