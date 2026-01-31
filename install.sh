@@ -195,29 +195,32 @@ configure_git() {
 }
 
 clone_repo() {
-    header "Cloning Repository"
-
     local clone_dir="${CLONE_DIR_BASE}-$$"
     local clone_attempts=0
     local max_attempts=3
 
+    # Output header to stderr (not captured by command substitution)
+    header "Cloning Repository" >&2
+
     while [[ $clone_attempts -lt $max_attempts ]]; do
-        log "Cloning from $REPO_URL (branch: $BRANCH)..."
+        # Output log to stderr
+        log "Cloning from $REPO_URL (branch: $BRANCH)..." >&2
 
         if git clone -b "$BRANCH" --depth 1 "$REPO_URL" "$clone_dir" 2>/dev/null; then
-            log "Repository cloned successfully to $clone_dir"
+            log "Repository cloned successfully to $clone_dir" >&2
+            # Output ONLY the directory path to stdout (for command substitution)
             echo "$clone_dir"
             return 0
         fi
 
         ((clone_attempts++))
         if [[ $clone_attempts -lt $max_attempts ]]; then
-            warn "Clone attempt $clone_attempts failed, retrying..."
+            warn "Clone attempt $clone_attempts failed, retrying..." >&2
             sleep 2
         fi
     done
 
-    error "Failed to clone repository after $max_attempts attempts"
+    error "Failed to clone repository after $max_attempts attempts" >&2
     exit 1
 }
 
@@ -252,20 +255,16 @@ delegate_to_setup() {
 }
 
 cleanup() {
-    header "Cleanup"
-
-    if [[ -n "$CLONE_DIR" ]] && [[ -d "$CLONE_DIR" ]]; then
-        log "Removing temporary clone directory: $CLONE_DIR"
-        rm -rf "$CLONE_DIR"
+    # Skip cleanup if we're in SKIP_SETUP mode (CLONE_DIR should be preserved)
+    if [[ "$SKIP_SETUP" == "true" ]]; then
+        return 0
     fi
 
-    # Clean up any old bootstrap directories (skip if CLONE_DIR is still active)
-    find "$CLONE_DIR_BASE"* -maxdepth 0 -mtime +1 2>/dev/null | while read -r old_dir; do
-        if [[ -d "$old_dir" ]] && [[ "$old_dir" != "$CLONE_DIR" ]]; then
-            log "Removing old bootstrap directory: $old_dir"
-            rm -rf "$old_dir"
-        fi
-    done
+    # Only remove our specific clone directory
+    if [[ -n "$CLONE_DIR" ]] && [[ -d "$CLONE_DIR" ]]; then
+        log "Removing temporary clone directory: $CLONE_DIR"
+        rm -rf "$CLONE_DIR" 2>/dev/null || true
+    fi
 
     log "Cleanup complete"
 }
